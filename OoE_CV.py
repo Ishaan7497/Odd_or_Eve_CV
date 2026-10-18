@@ -670,6 +670,142 @@ class Brain:
         self.hist = self.hist[-12:]
 
 
+COIN_DUR = 45  # ~1.5 seconds at 30 fps
+
+
+def draw_coin(frame, t, user_n, comp_n, w, h):
+    cx, cy = w // 2, h // 2 - 20
+    R = 92
+    LAND = COIN_DUR - 15  # land 15 frames (~0.5s) before the end
+
+    vignette(frame, alpha=0.62)
+    glow_text(frame, "COIN  TOSS", (w // 2, 80),
+              1.3, GOLD, bold=True, layers=3, center=True)
+    cv2.ellipse(frame, (cx + 6, cy + 12), (R, R // 5), 0, 0, 360,
+                (10, 12, 16), -1, cv2.LINE_AA)
+
+    if t < LAND:
+        prog = t / LAND
+        period = max(2, int(12 * (1 - prog * 0.85)))
+        ph = (t % period) / period
+        xr = max(6, int(R * abs(2 * ph - 1)))
+        front = ph < 0.5
+        cv2.ellipse(frame, (cx, cy), (xr, R), 0, 0, 360,
+                    (8, 145, 210) if front else (4, 110, 180), -1, cv2.LINE_AA)
+        cv2.ellipse(frame, (cx, cy), (max(2, int(xr * 0.85)), int(R * 0.92)),
+                    0, 0, 360,
+                    (35, 200, 250) if front else (25, 165, 220), -1, cv2.LINE_AA)
+        cv2.ellipse(frame, (cx, cy), (xr, R), 0, 0, 360,
+                    (60, 230, 255), 3, cv2.LINE_AA)
+        if xr > 30:
+            # Show a "?" while flipping, not the actual numbers — keeps suspense
+            glow_text(frame, "?", (cx, cy + 18),
+                      2.4, (255, 255, 255), bold=True, layers=2, center=True)
+        text(frame, "Flipping...", (w // 2, cy + R + 78),
+             0.85, TEXT_DIM, center=True)
+    else:
+        # Landed: reveal both numbers
+        age = t - LAND
+        rr = R + age * 2
+        al = max(0.0, 1 - age / 15)
+        cv2.ellipse(frame, (cx, cy), (rr, rr // 2), 0, 0, 360,
+                    (35, 200, 250), max(1, int(4 * al)), cv2.LINE_AA)
+        cv2.ellipse(frame, (cx, cy), (R, R), 0, 0, 360,
+                    (8, 145, 210), -1, cv2.LINE_AA)
+        cv2.ellipse(frame, (cx, cy), (int(R * 0.86), int(R * 0.86)), 0, 0, 360,
+                    (35, 200, 250), -1, cv2.LINE_AA)
+        cv2.ellipse(frame, (cx, cy), (R, R), 0, 0, 360,
+                    (90, 230, 255), 4, cv2.LINE_AA)
+        for num, xo, lbl in [(user_n, -55, "YOU"), (comp_n, 55, "CPU")]:
+            glow_text(frame, str(num), (cx + xo, cy + 14),
+                      1.9, (255, 255, 255), bold=True, layers=2, center=True)
+            text(frame, lbl, (cx + xo, cy + R + 38), 0.7, TEXT_DIM, center=True)
+        text(frame, f"You: {user_n}     CPU: {comp_n}",
+             (w // 2, cy + R + 78), 0.85, TEXT_DIM, center=True)
+
+
+def topbar(frame, g, w, dlbl, dkey):
+    BAR_H = 86
+    panel_bg(frame, 0, BAR_H, alpha=0.86)
+    glow_text(frame, "HAND CRICKET", (18, 34), 0.78, PRIMARY, bold=True, layers=2)
+    mode_s = g.get('mode') or ''
+    if mode_s:
+        text(frame, mode_s, (18, 64), 0.62, TEXT_DIM)
+    dcol = {'EASY': PRIMARY, 'MEDIUM': GOLD, 'HARD': RED}.get(dkey, TEXT)
+    pill_x = w // 2 - 70
+    draw_pill(frame, (pill_x, 38), f"CPU  {dlbl.strip()}", dcol, scale=0.55)
+    s1 = '---' if g['innings_scores'][0] is None else str(g['innings_scores'][0])
+    s2 = '---' if g['innings_scores'][1] is None else str(g['innings_scores'][1])
+    box_w = 260
+    bx1 = w - box_w - 14
+    rounded_rect(frame, (bx1, 12), (w - 14, 74), PANEL, 10, -1)
+    rounded_rect(frame, (bx1, 12), (w - 14, 74), LINE, 10, 1)
+    text(frame, "1st", (bx1 + 18, 36), 0.55, TEXT_MUTE)
+    text(frame, "2nd", (bx1 + 18, 64), 0.55, TEXT_MUTE)
+    text(frame, s1, (bx1 + 70, 38), 0.78, TEXT, bold=True)
+    text(frame, s2, (bx1 + 70, 66), 0.78, TEXT, bold=True)
+    if g['innings'] == 1 and g['innings_scores'][0] is not None:
+        target = g['innings_scores'][0] + 1
+        text(frame, f"TARGET {target}", (bx1 + 140, 38), 0.58, GOLD, bold=True)
+        need = target - g['current_runs']
+        if need > 0:
+            text(frame, f"NEED {need}", (bx1 + 140, 66), 0.58, TEXT_DIM)
+        else:
+            text(frame, "WON!", (bx1 + 140, 66), 0.58, PRIMARY, bold=True)
+
+
+def gesture_indicator(frame, raw, prog, w):
+    cx, cy, R = w - 50, 120, 28
+    rounded_rect(frame, (cx - R - 6, cy - R - 6),
+                 (cx + R + 6, cy + R + 6), PANEL, 12, -1)
+    cv2.circle(frame, (cx, cy), R, DEEP, -1, cv2.LINE_AA)
+    cv2.circle(frame, (cx, cy), R, LINE, 1, cv2.LINE_AA)
+    if prog > 0:
+        cv2.ellipse(frame, (cx, cy), (R - 2, R - 2),
+                    -90, 0, int(360 * prog),
+                    PRIMARY if prog < 1.0 else GOLD, 4, cv2.LINE_AA)
+    lbl = str(raw) if raw is not None else '.'
+    text(frame, lbl, (cx, cy + 8), 1.05, GOLD, bold=True, center=True)
+    text(frame, "HOLD", (cx, cy + R + 22), 0.42, TEXT_MUTE, center=True)
+
+
+def resolve(bat, bowl, mode):
+    if mode == 'CRAZY':
+        d = abs(bat - bowl)
+        if d == 1 or d == 9:
+            return 0, True, f"OUT! Adjacent ({bat} vs {bowl})"
+        if bat == bowl:
+            r = bat ** 2
+            return r, False, f"SQUARED! {bat}^2={r}"
+        return bat, False, f"+{bat}"
+    if bat == bowl:
+        return 0, True, f"OUT! Both chose {bat}"
+    return bat, False, f"+{bat}"
+
+
+def new_game():
+    return {
+        'state': 'MODE_SELECT',
+        'mode': None, 'run_range': None,
+        'toss_choice': None, 'toss_user_num': None, 'toss_comp_num': None,
+        'toss_total': None, 'toss_result_str': None,
+        'user_won_toss': False, 'toss_comp_dec': None,
+        'user_batting': None, 'batting_first': None,
+        'current_runs': 0, 'innings': 0, 'innings_scores': [None, None],
+        'is_super_over': False, 'super_balls': 6,
+        'ball_msg': '', 'ball_out': False, 'ball_runs': 0,
+        'you_showed': None, 'comp_showed': None,
+        'ball_timer': None, 'coin_timer': 0,
+        'result_sound_played': False,
+        # celebration triggers
+        'fifty_shown': False, 'hundred_shown': False,
+        'pending_celebration': None,
+        'match_celebration_shown': False,
+        'celebration_start': None,
+        'celebration_acknowledged': False,
+    }
+
+
 
 
 # --- original finger counter (temporary) ---
