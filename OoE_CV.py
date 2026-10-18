@@ -620,6 +620,57 @@ class GestureConfirm:
         self._last_tick = 0
 
 
+class Brain:
+    def __init__(self, diff):
+        self.diff = diff
+        self.hist = []
+
+    def pick(self, rng, is_bowling):
+        rng = list(rng)
+        if self.diff == 'EASY':
+            # EASY: still random, but with slight high-number bias (1.2x weight on higher numbers)
+            weights = [1.0 + 0.15 * (n - rng[0]) / max(1, rng[-1] - rng[0])
+                       for n in rng]
+            return random.choices(rng, weights=weights)[0]
+        
+        predict = None
+        if len(self.hist) >= 3:
+            predict = Counter(self.hist[-6:]).most_common(1)[0][0]
+            if predict not in rng:
+                predict = None
+        
+        if self.diff == 'MEDIUM':
+            if is_bowling and predict and random.random() < 0.28:
+                return predict
+            if not is_bowling and predict and random.random() < 0.22:
+                others = [n for n in rng if n != predict]
+                if others:
+                    return random.choice(others)
+            # Weighted toward middle + high numbers (moderate aggression)
+            mid = (rng[0] + rng[-1]) / 2
+            w = [1.5 / (abs(n - mid) + 0.6) for n in rng]
+            # Boost high numbers by 30%
+            w = [w[i] * (1.0 + 0.30 * (rng[i] - rng[0]) / max(1, rng[-1] - rng[0]))
+                 for i in range(len(rng))]
+            return random.choices(rng, weights=w)[0]
+        else:  # HARD
+            if is_bowling and predict and random.random() < 0.52:
+                return predict
+            if not is_bowling and predict and random.random() < 0.42:
+                others = [n for n in rng if n != predict]
+                if others:
+                    return random.choice(others)
+            # HARD: strong bias toward high numbers (greedy, aggressive)
+            weights = [1.0 + 0.50 * (n - rng[0]) / max(1, rng[-1] - rng[0])
+                       for n in rng]
+            return random.choices(rng, weights=weights)[0]
+
+    def record(self, v):
+        self.hist.append(v)
+        self.hist = self.hist[-12:]
+
+
+
 
 # --- original finger counter (temporary) ---
 
