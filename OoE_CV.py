@@ -356,6 +356,186 @@ def progress_bar(frame, prog, w, h, height=6):
         cv2.rectangle(frame, (0, h - height), (int(w * prog), h), col, -1)
 
 
+class Particles:
+    def __init__(self, cx, cy, count=65, gravity=0.45,
+                 speed_range=(4, 15), colors=None, life_range=(35, 90)):
+        if colors is None:
+            colors = [(120, 255, 140), (90, 220, 255), (35, 200, 250),
+                      (200, 120, 255), (95, 95, 255), (255, 255, 255)]
+        self.p = []
+        for _ in range(count):
+            ang = random.uniform(0, 2 * np.pi)
+            spd = random.uniform(*speed_range)
+            lf = random.randint(*life_range)
+            self.p.append({
+                'x': float(cx), 'y': float(cy),
+                'vx': spd * np.cos(ang),
+                'vy': spd * np.sin(ang) - random.uniform(3, 9),
+                'r': random.randint(4, 11),
+                'c': random.choice(colors),
+                'life': lf, 'ml': lf, 'g': gravity,
+            })
+
+    def update_draw(self, frame):
+        alive = []
+        for p in self.p:
+            p['x'] += p['vx']; p['y'] += p['vy']
+            p['vy'] += p['g']; p['vx'] *= 0.99
+            p['life'] -= 1
+            if p['life'] > 0:
+                a = p['life'] / p['ml']
+                r = max(1, int(p['r'] * a))
+                cv2.circle(frame, (int(p['x']), int(p['y'])), r, p['c'], -1, cv2.LINE_AA)
+                alive.append(p)
+        self.p = alive
+        return bool(self.p)
+
+
+class Confetti:
+    def __init__(self, w, h, count=120):
+        cols = [(95, 220, 120), (35, 200, 250), (240, 175, 90),
+                (220, 100, 240), (60, 75, 235), (255, 255, 255)]
+        self.p = []
+        for _ in range(count):
+            self.p.append({
+                'x': random.uniform(0, w),
+                'y': random.uniform(-h, 0),
+                'vx': random.uniform(-1.0, 1.0),
+                'vy': random.uniform(2.5, 5.5),
+                'rot': random.uniform(0, 2 * np.pi),
+                'spin': random.uniform(-0.25, 0.25),
+                'sz': random.randint(5, 11),
+                'c': random.choice(cols),
+            })
+        self.h = h
+
+    def update_draw(self, frame):
+        h = self.h
+        for p in self.p:
+            p['x'] += p['vx']; p['y'] += p['vy']; p['rot'] += p['spin']
+            if p['y'] > h + 20:
+                p['y'] = -10
+                p['x'] = random.uniform(0, frame.shape[1])
+            cx, cy = int(p['x']), int(p['y'])
+            s = p['sz']
+            c, s_ = np.cos(p['rot']), np.sin(p['rot'])
+            pts = np.array([[-s, -s // 2], [s, -s // 2], [s, s // 2], [-s, s // 2]],
+                           dtype=np.float32)
+            R = np.array([[c, -s_], [s_, c]], dtype=np.float32)
+            pts = pts @ R.T
+            pts[:, 0] += cx; pts[:, 1] += cy
+            cv2.fillPoly(frame, [pts.astype(np.int32)], p['c'], cv2.LINE_AA)
+
+
+class FX:
+    def __init__(self):
+        self.q = []
+        self.confetti = None
+
+    def trigger(self, kind, **kw):
+        self.q.append({'k': kind, 't': 0, **kw})
+
+    def confetti_on(self, w, h):
+        self.confetti = Confetti(w, h, count=140)
+
+    def clear(self):
+        self.q = []
+        self.confetti = None
+
+    def draw(self, frame):
+        h, w = frame.shape[:2]
+        alive = []
+        if self.confetti is not None:
+            self.confetti.update_draw(frame)
+        for a in self.q:
+            t = a['t']; k = a['k']
+
+            if k == 'OUT':
+                DUR = 95
+                if t >= DUR: continue
+                a_blend = 0.32 * (1 - t / DUR)
+                ov = frame.copy()
+                cv2.rectangle(ov, (0, 0), (w, h), (35, 35, 215), -1)
+                cv2.addWeighted(ov, a_blend, frame, 1 - a_blend, 0, frame)
+                if t < 22:
+                    sh = int(10 * (1 - t / 22))
+                    M = np.float32([[1, 0, random.randint(-sh, sh)],
+                                    [0, 1, random.randint(-sh, sh)]])
+                    frame[:] = cv2.warpAffine(frame, M, (w, h))
+                # NOTE: "OUT!" text removed here — the CELEBRATION screen renders it.
+                alive.append({**a, 't': t + 1})
+
+            elif k == 'BIGRUN':
+                DUR = 115
+                if t >= DUR: continue
+                ps = a.get('_ps')
+                if ps is None:
+                    ps = Particles(w // 2, h // 2, count=42, speed_range=(5, 17))
+                    a['_ps'] = ps
+                if t < 18:
+                    a_blend = 0.22 * (1 - t / 18)
+                    ov = frame.copy()
+                    cv2.rectangle(ov, (0, 0), (w, h), (35, 200, 250), -1)
+                    cv2.addWeighted(ov, a_blend, frame, 1 - a_blend, 0, frame)
+                ps.update_draw(frame)
+                lbl = a.get('lbl', 'BIG HIT!')
+                glow_text(frame, lbl, (w // 2, h // 3),
+                          1.9, GOLD, bold=True, layers=3, center=True)
+                alive.append({**a, 't': t + 1})
+
+            elif k == 'RUN_POP':
+                DUR = 50
+                if t >= DUR: continue
+                runs = a.get('runs', 1)
+                p = t / DUR
+                y = int(h * 0.45 - p * 70)
+                alpha = 1 - p
+                col = a.get('col', PRIMARY)
+                tmp = frame.copy()
+                glow_text(tmp, f"+{runs}", (w // 2, y),
+                          1.7, col, bold=True, layers=3, center=True)
+                cv2.addWeighted(tmp, alpha, frame, 1 - alpha, 0, frame)
+                alive.append({**a, 't': t + 1})
+
+            elif k == 'FLASH':
+                DUR = 30
+                if t >= DUR: continue
+                ov = frame.copy()
+                cv2.rectangle(ov, (0, 0), (w, h), a.get('col', (95, 220, 120)), -1)
+                a_blend = 0.13 * (1 - t / DUR)
+                cv2.addWeighted(ov, a_blend, frame, 1 - a_blend, 0, frame)
+                alive.append({**a, 't': t + 1})
+
+            elif k == 'WIN':
+                DUR = 220
+                if t >= DUR: continue
+                ps = a.get('_ps')
+                if ps is None:
+                    ps = Particles(w // 2, int(h * 0.35), count=55, speed_range=(5, 18))
+                    a['_ps'] = ps
+                ps.update_draw(frame)
+                if t in (40, 80, 130, 170):
+                    self.q.append({'k': '_BURST', 't': 0,
+                                   'cx': random.randint(int(w * 0.2), int(w * 0.8)),
+                                   'cy': random.randint(int(h * 0.2), int(h * 0.5))})
+                alive.append({**a, 't': t + 1})
+
+            elif k == '_BURST':
+                DUR = 35
+                if t >= DUR: continue
+                ps = a.get('_ps')
+                if ps is None:
+                    ps = Particles(a['cx'], a['cy'], count=20, speed_range=(3, 9))
+                    a['_ps'] = ps
+                ps.update_draw(frame)
+                alive.append({**a, 't': t + 1})
+
+        self.q = alive
+
+
+fx = FX()
+
+
 
 # --- original finger counter (temporary) ---
 
