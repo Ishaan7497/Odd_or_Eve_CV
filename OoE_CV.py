@@ -5,7 +5,8 @@ Show fingers to the webcam to play your shot / bowl your delivery.
 Gestures: 1-5 = number of fingers up,  6-9 = thumb + closed fingers, 10 = cupped hand.
 
 Controls inside the game:
-  ESC  - quit
+  ESC / Q            - quit
+  Both fists for 3s  - quit
 """
 
 import os
@@ -1199,8 +1200,8 @@ def screen_celebration(frame, g, conf_kind, w, h, mpr, frame_idx):
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  QUIT-BY-GESTURE
-#  Hold a closed fist (no fingers, no thumb) for 1.5 seconds anywhere in the
-#  game to quit. Shows a confirmation ring around the gesture indicator.
+#  Hold a closed fist with BOTH hands for 3 seconds anywhere in the game to
+#  quit. Shows a confirmation ring around the gesture indicator.
 # ─────────────────────────────────────────────────────────────────────────────
 
 QUIT_HOLD = 3.0  # Must hold for 3 seconds — well past any normal turn duration
