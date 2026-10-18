@@ -536,6 +536,90 @@ class FX:
 fx = FX()
 
 
+HAND_CONN = [(0, 1), (1, 2), (2, 3), (3, 4), (0, 5), (5, 6), (6, 7), (7, 8),
+             (5, 9), (9, 10), (10, 11), (11, 12), (9, 13), (13, 14), (14, 15),
+             (15, 16), (13, 17), (17, 18), (18, 19), (19, 20), (0, 17)]
+
+G_MAP = {
+    (0, 1, 0, 0, 0): 1, (0, 1, 1, 0, 0): 2, (0, 1, 1, 1, 0): 3,
+    (0, 1, 1, 1, 1): 4, (1, 1, 1, 1, 1): 5, (1, 0, 0, 0, 0): 6,
+    (1, 1, 0, 0, 0): 7, (1, 1, 1, 0, 0): 8, (1, 1, 1, 1, 0): 9,
+}
+
+
+def _d(a, b):
+    return float(np.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2 + (a.z - b.z) ** 2))
+
+
+def fstates(lms):
+    hs = _d(lms[0], lms[9])
+    if hs < 0.001:
+        return (0, 0, 0, 0, 0)
+    t = 1 if _d(lms[4], lms[5]) > hs * 0.45 else 0
+    return tuple([t] + [1 if _d(lms[i], lms[0]) > _d(lms[i - 2], lms[0])
+                        else 0 for i in [8, 12, 16, 20]])
+
+
+def is_cup(hl):
+    return len(hl) >= 2 and all(sum(fstates(l)) <= 1 for l in hl)
+
+
+def raw_gesture(mpr, valid):
+    if not mpr.hand_landmarks:
+        return None
+    if 10 in valid and is_cup(mpr.hand_landmarks):
+        return 10
+    if len(mpr.hand_landmarks) == 1:
+        v = G_MAP.get(fstates(mpr.hand_landmarks[0]))
+        if v is not None and v in valid:
+            return v
+    return None
+
+
+def draw_hands(frame, mpr, w, h):
+    if not mpr.hand_landmarks:
+        return
+    for lms in mpr.hand_landmarks:
+        for a, b in HAND_CONN:
+            cv2.line(frame,
+                     (int(lms[a].x * w), int(lms[a].y * h)),
+                     (int(lms[b].x * w), int(lms[b].y * h)),
+                     (0, 200, 255), 2, cv2.LINE_AA)
+        for lm in lms:
+            cv2.circle(frame, (int(lm.x * w), int(lm.y * h)),
+                       4, (255, 255, 255), -1, cv2.LINE_AA)
+
+
+class GestureConfirm:
+    def __init__(self, hold=1.30):
+        self.hold = hold
+        self.cur = None
+        self.t0 = None
+        self._last_tick = 0
+
+    def update(self, raw):
+        now = time.time()
+        if raw != self.cur:
+            self.cur = raw
+            self.t0 = now if raw is not None else None
+            self._last_tick = 0
+            return None, 0.0
+        if self.cur is None:
+            return None, 0.0
+        e = now - self.t0
+        p = min(e / self.hold, 1.0)
+        if e >= self.hold:
+            v = self.cur
+            self.reset()
+            return v, 1.0
+        return None, p
+
+    def reset(self):
+        self.cur = None
+        self.t0 = None
+        self._last_tick = 0
+
+
 
 # --- original finger counter (temporary) ---
 
