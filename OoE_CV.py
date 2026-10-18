@@ -864,6 +864,21 @@ def end_of_ball_update(g):
     return upd
 
 
+def check_milestone(g):
+    """Return 'HUNDRED' or 'FIFTY' the first time the score reaches it, else None.
+
+    Checks 100 first so a single big ball (e.g. 10^2 in CRAZY mode) that jumps
+    past both milestones celebrates the hundred rather than the fifty."""
+    runs = g['current_runs']
+    if not g['hundred_shown'] and runs >= 100:
+        g['hundred_shown'] = g['fifty_shown'] = True
+        return 'HUNDRED'
+    if not g['fifty_shown'] and runs >= 50:
+        g['fifty_shown'] = True
+        return 'FIFTY'
+    return None
+
+
 def screen_mode_select(frame, conf, w, h, t):
     vignette(frame, alpha=0.7)
     pulse = 1.0 + 0.04 * np.sin(t * 0.08)
@@ -1547,12 +1562,9 @@ def main():
 
                 # Milestone celebrations (batting only)
                 if g['user_batting'] and not out:
-                    if not g['fifty_shown'] and g['current_runs'] >= 50:
-                        g['fifty_shown'] = True
-                        g['pending_celebration'] = 'FIFTY'
-                    elif not g['hundred_shown'] and g['current_runs'] >= 100:
-                        g['hundred_shown'] = True
-                        g['pending_celebration'] = 'HUNDRED'
+                    milestone = check_milestone(g)
+                    if milestone:
+                        g['pending_celebration'] = milestone
                 gc.reset()
 
         elif state == 'BALL_RESULT':
