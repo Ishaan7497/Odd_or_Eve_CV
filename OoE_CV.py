@@ -1197,6 +1197,72 @@ def screen_celebration(frame, g, conf_kind, w, h, mpr, frame_idx):
     return elapsed >= cfg['duration']
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+#  QUIT-BY-GESTURE
+#  Hold a closed fist (no fingers, no thumb) for 1.5 seconds anywhere in the
+#  game to quit. Shows a confirmation ring around the gesture indicator.
+# ─────────────────────────────────────────────────────────────────────────────
+
+QUIT_HOLD = 3.0  # Must hold for 3 seconds — well past any normal turn duration
+
+
+class QuitDetector:
+    """Quit gesture: both hands visible AND both showing closed fist for 3+ seconds.
+
+    To prevent accidental quits during gameplay (where closed fists might
+    register between turns), this only counts time when BOTH hands are
+    continuously fists. Any interruption — even one frame of a different
+    gesture — resets the timer to zero."""
+
+    def __init__(self):
+        self.start_time = None
+        self.consecutive_fist_frames = 0
+
+    def update(self, mpr):
+        # Need at least two hands, both closed fists
+        two_fists = False
+        if mpr.hand_landmarks and len(mpr.hand_landmarks) >= 2:
+            fists = sum(1 for lms in mpr.hand_landmarks
+                        if fstates(lms) == (0, 0, 0, 0, 0))
+            two_fists = fists >= 2
+
+        if not two_fists:
+            # Any non-fist frame: reset completely
+            self.start_time = None
+            self.consecutive_fist_frames = 0
+            return False, 0.0
+
+        # Require at least 5 consecutive frames of fists before starting the timer.
+        # This filters out single-frame misdetections during normal play.
+        self.consecutive_fist_frames += 1
+        if self.consecutive_fist_frames < 5:
+            return True, 0.0
+
+        if self.start_time is None:
+            self.start_time = time.time()
+        elapsed = time.time() - self.start_time
+        return True, min(1.0, elapsed / QUIT_HOLD)
+
+
+def draw_quit_indicator(frame, prog, w, h):
+    """Small indicator on the lower-right showing how close the quit gesture is."""
+    cx, cy = w - 50, h - 70
+    R = 22
+    rounded_rect(frame, (cx - R - 6, cy - R - 6),
+                 (cx + R + 6, cy + R + 6), (30, 12, 18), 10, -1)
+    cv2.circle(frame, (cx, cy), R, (15, 8, 10), -1, cv2.LINE_AA)
+    cv2.circle(frame, (cx, cy), R, (60, 60, 80), 1, cv2.LINE_AA)
+    if prog > 0:
+        cv2.ellipse(frame, (cx, cy), (R - 3, R - 3),
+                    -90, 0, int(360 * prog),
+                    (60, 75, 235), 4, cv2.LINE_AA)
+    text(frame, "QUIT", (cx, cy + 6), 0.42, (220, 220, 230),
+         bold=True, center=True)
+    text(frame, "2 fists", (cx, cy + R + 16), 0.38, TEXT_MUTE, center=True)
+
+
+
+
 
 
 # --- original finger counter (temporary) ---
