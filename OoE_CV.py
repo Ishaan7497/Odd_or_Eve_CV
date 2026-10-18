@@ -269,6 +269,93 @@ if BGM_PATH is None:
           "drop one in to enable background music)")
 
 
+DEEP        = (18, 22, 30)
+PANEL       = (32, 38, 52)
+PANEL_HI    = (52, 60, 78)
+LINE        = (75, 85, 105)
+TEXT        = (240, 244, 248)
+TEXT_DIM    = (175, 185, 200)
+TEXT_MUTE   = (110, 120, 135)
+PRIMARY     = (95, 220, 120)
+GOLD        = (35, 200, 250)
+RED         = (60, 75, 235)
+BLUE        = (240, 175, 90)
+PURPLE      = (220, 100, 240)
+
+
+def rounded_rect(frame, pt1, pt2, color, radius=12, thickness=-1):
+    x1, y1 = pt1
+    x2, y2 = pt2
+    radius = max(0, min(radius, (x2 - x1) // 2, (y2 - y1) // 2))
+    if thickness == -1:
+        cv2.rectangle(frame, (x1 + radius, y1), (x2 - radius, y2), color, -1)
+        cv2.rectangle(frame, (x1, y1 + radius), (x2, y2 - radius), color, -1)
+        cv2.circle(frame, (x1 + radius, y1 + radius), radius, color, -1, cv2.LINE_AA)
+        cv2.circle(frame, (x2 - radius, y1 + radius), radius, color, -1, cv2.LINE_AA)
+        cv2.circle(frame, (x1 + radius, y2 - radius), radius, color, -1, cv2.LINE_AA)
+        cv2.circle(frame, (x2 - radius, y2 - radius), radius, color, -1, cv2.LINE_AA)
+
+
+def panel_bg(frame, y1, y2, alpha=0.78):
+    h, w = frame.shape[:2]
+    overlay = frame.copy()
+    cv2.rectangle(overlay, (0, y1), (w, y2), DEEP, -1)
+    cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0, frame)
+    cv2.line(frame, (0, y1), (w, y1), LINE, 1, cv2.LINE_AA)
+    cv2.line(frame, (0, y2), (w, y2), LINE, 1, cv2.LINE_AA)
+
+
+def vignette(frame, alpha=0.55):
+    h, w = frame.shape[:2]
+    overlay = frame.copy()
+    cv2.rectangle(overlay, (0, 0), (w, h), (5, 8, 14), -1)
+    cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0, frame)
+
+
+def text(frame, s, pos, scale=0.75, color=TEXT, bold=False, shadow=True, center=False):
+    th = 3 if bold else 2
+    if center:
+        (tw, _), _ = cv2.getTextSize(str(s), cv2.FONT_HERSHEY_DUPLEX, scale, th)
+        pos = (pos[0] - tw // 2, pos[1])
+    if shadow:
+        cv2.putText(frame, str(s), (pos[0] + 1, pos[1] + 2),
+                    cv2.FONT_HERSHEY_DUPLEX, scale, (0, 0, 0), th + 2, cv2.LINE_AA)
+    cv2.putText(frame, str(s), pos, cv2.FONT_HERSHEY_DUPLEX, scale, color, th, cv2.LINE_AA)
+
+
+def glow_text(frame, s, pos, scale, color, bold=True, layers=4, center=False):
+    th = 4 if bold else 2
+    if center:
+        (tw, _), _ = cv2.getTextSize(str(s), cv2.FONT_HERSHEY_DUPLEX, scale, th)
+        pos = (pos[0] - tw // 2, pos[1])
+    for i in range(layers, 0, -1):
+        cv2.putText(frame, str(s), pos, cv2.FONT_HERSHEY_DUPLEX,
+                    scale, color, th + i * 2, cv2.LINE_AA)
+    cv2.putText(frame, str(s), pos, cv2.FONT_HERSHEY_DUPLEX,
+                scale, (0, 0, 0), th + 2, cv2.LINE_AA)
+    cv2.putText(frame, str(s), pos, cv2.FONT_HERSHEY_DUPLEX,
+                scale, color, th, cv2.LINE_AA)
+
+
+def draw_pill(frame, pos, label, color, scale=0.65, padding=(14, 8)):
+    x, y = pos
+    (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_DUPLEX, scale, 2)
+    x2 = x + tw + padding[0] * 2
+    y1 = y - th - padding[1]
+    y2 = y + padding[1]
+    rounded_rect(frame, (x, y1), (x2, y2), color, radius=(y2 - y1) // 2, thickness=-1)
+    cv2.putText(frame, label, (x + padding[0], y),
+                cv2.FONT_HERSHEY_DUPLEX, scale, (10, 10, 10), 2, cv2.LINE_AA)
+    return x2
+
+
+def progress_bar(frame, prog, w, h, height=6):
+    cv2.rectangle(frame, (0, h - height), (w, h), (10, 12, 18), -1)
+    if prog > 0:
+        col = PRIMARY if prog < 1.0 else GOLD
+        cv2.rectangle(frame, (0, h - height), (int(w * prog), h), col, -1)
+
+
 
 # --- original finger counter (temporary) ---
 
