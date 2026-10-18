@@ -1630,6 +1630,11 @@ def main():
             elif conf == 2:
                 break
 
+        # A gesture held across a screen change must not carry over and
+        # instantly confirm something on the next screen.
+        if g['state'] != state:
+            gc.reset()
+
         fx.draw(frame)
         cv2.imshow("Hand Cricket", frame)
         key = cv2.waitKey(1) & 0xFF
