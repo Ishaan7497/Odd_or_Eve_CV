@@ -218,6 +218,57 @@ else:
             pass
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+#  BACKGROUND MUSIC
+#  Looks for bgm.mp3 / bgm.wav / bgm.ogg next to this script and loops it.
+#  Pauses during celebrations and louder moments so SFX cut through.
+# ─────────────────────────────────────────────────────────────────────────────
+
+BGM_PATH = None
+for _candidate in ('bgm.mp3', 'bgm.ogg', 'bgm.wav'):
+    _p = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals()
+        else os.getcwd(),
+        _candidate,
+    )
+    if os.path.isfile(_p):
+        BGM_PATH = _p
+        break
+
+
+def bgm_start(volume=0.20):
+    if not SOUND_ON or BGM_PATH is None:
+        return
+    try:
+        pygame.mixer.music.load(BGM_PATH)
+        pygame.mixer.music.set_volume(volume)
+        pygame.mixer.music.play(loops=-1)
+        print(f"[sound] background music loaded: {os.path.basename(BGM_PATH)}")
+    except Exception as e:
+        print(f"[sound] background music FAILED: {e}")
+
+
+def bgm_volume(v):
+    if SOUND_ON:
+        try:
+            pygame.mixer.music.set_volume(v)
+        except Exception:
+            pass
+
+
+def bgm_stop():
+    if SOUND_ON:
+        try:
+            pygame.mixer.music.stop()
+        except Exception:
+            pass
+
+
+if BGM_PATH is None:
+    print("[sound] (no bgm.mp3/ogg/wav found next to the script; "
+          "drop one in to enable background music)")
+
+
 
 # --- original finger counter (temporary) ---
 
