@@ -1065,6 +1065,138 @@ def screen_game_result(frame, g, dlbl, w, h):
     text(frame, "2  QUIT", (w // 2 + 100, h - 40), 0.78, TEXT, bold=True)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+#  CELEBRATION SCREEN
+# ─────────────────────────────────────────────────────────────────────────────
+
+CELEBRATION_CONFIG = {
+    # User got out (batting): stumps hit + OUT! call + crowd aww
+    'OUT_BATTING': {
+        'label': 'OUT!',
+        'color': (60, 60, 255),
+        # Sequence: [(sound_name, delay_in_seconds), ...]
+        'auto_sounds': [
+            ('stumps_hit', 0.00),   # immediate impact
+            ('out_call',   0.15),   # "OUT!" call right after
+            ('crowd_aww',  0.55),   # crowd reacts
+        ],
+        'subtext': None,
+        'prompt': None,
+        'duration': 2.8,
+    },
+    # User took a wicket (bowling): stumps + OUT! call + cheer (raise hand for extra cheer)
+    'WICKET_BOWLING': {
+        'label': 'WICKET!',
+        'color': (95, 220, 120),
+        'auto_sounds': [
+            ('stumps_hit',  0.00),
+            ('out_call',    0.15),
+            ('crowd_cheer', 0.50),
+        ],
+        'subtext': None,
+        'prompt': 'RAISE YOUR HAND TO CELEBRATE',
+        'cheer_sound': 'crowd_cheer',
+        'duration': 3.5,
+    },
+    'FIFTY': {
+        'label': 'FIFTY!',
+        'color': (35, 200, 250),
+        'auto_sounds': None,
+        'subtext': '50 RUNS',
+        'prompt': 'RAISE YOUR HAND TO CELEBRATE',
+        'cheer_sound': 'crowd_cheer',
+        'duration': 3.5,
+    },
+    'HUNDRED': {
+        'label': 'HUNDRED!',
+        'color': (95, 220, 120),
+        'auto_sounds': None,
+        'subtext': '100 RUNS: CENTURY!',
+        'prompt': 'RAISE YOUR HAND TO CELEBRATE',
+        'cheer_sound': 'crowd_cheer',
+        'duration': 4.0,
+    },
+    'MATCH_WIN': {
+        'label': 'YOU WIN!',
+        'color': (95, 220, 120),
+        'auto_sounds': None,
+        'subtext': 'Victory!',
+        'prompt': 'RAISE YOUR HAND TO CELEBRATE',
+        'cheer_sound': 'crowd_cheer',
+        'duration': 4.5,
+    },
+    'MATCH_LOSE': {
+        'label': 'DEFEAT',
+        'color': (60, 75, 235),
+        'auto_sounds': [('crowd_aww', 0.0)],
+        'subtext': 'Better luck next time',
+        'prompt': None,
+        'duration': 3.0,
+    },
+}
+
+
+def is_hand_raised(mpr):
+    """Detect: any hand landmark with the wrist well above the bottom of the frame
+    AND the hand mostly facing up (index tip above wrist)."""
+    if not mpr.hand_landmarks:
+        return False
+    for lms in mpr.hand_landmarks:
+        # index fingertip (8) above wrist (0) by at least 15% of frame height
+        if lms[8].y < lms[0].y - 0.15:
+            return True
+    return False
+
+
+def screen_celebration(frame, g, conf_kind, w, h, mpr, frame_idx):
+    """Renders the celebration / out screen for the given kind.
+    Returns True when the celebration is finished and game can progress.
+    """
+    cfg = CELEBRATION_CONFIG[conf_kind]
+    vignette(frame, alpha=0.65)
+
+    # Pulsing big label
+    pulse = 1.0 + 0.06 * np.sin(frame_idx * 0.18)
+    glow_text(frame, cfg['label'], (w // 2, int(h * 0.40)),
+              2.2 * pulse, cfg['color'], bold=True, layers=4, center=True)
+
+    if cfg.get('subtext'):
+        text(frame, cfg['subtext'], (w // 2, int(h * 0.50)),
+             0.9, TEXT, center=True)
+
+    elapsed = time.time() - (g.get('celebration_start') or time.time())
+
+    # Auto-sounds: play each sound at its scheduled delay
+    sounds_played = g.setdefault('_celebration_sounds_played', set())
+    auto_sounds = cfg.get('auto_sounds')
+    if auto_sounds:
+        for idx, (snd, delay) in enumerate(auto_sounds):
+            if idx not in sounds_played and elapsed >= delay:
+                print(f"[debug] celebration sound: {snd} (elapsed={elapsed:.2f}s, kind={conf_kind})")
+                play(snd)
+                sounds_played.add(idx)
+
+    if cfg.get('prompt'):
+        if not g.get('celebration_acknowledged'):
+            pulse_txt = 0.6 + 0.4 * abs(np.sin(frame_idx * 0.12))
+            col = tuple(int(c * pulse_txt + 240 * (1 - pulse_txt))
+                        for c in cfg['color'])
+            glow_text(frame, cfg['prompt'], (w // 2, int(h * 0.62)),
+                      1.0, col, bold=True, layers=2, center=True)
+            text(frame, "(or wait to skip)", (w // 2, int(h * 0.70)),
+                 0.6, TEXT_MUTE, center=True)
+            if is_hand_raised(mpr):
+                if cfg.get('cheer_sound'):
+                    print(f"[debug] hand-raise cheer: {cfg['cheer_sound']} (kind={conf_kind})")
+                    play(cfg['cheer_sound'])
+                g['celebration_acknowledged'] = True
+                g['celebration_start'] = time.time() - cfg['duration'] * 0.55
+                fx.trigger('FLASH', col=cfg['color'])
+                fx.confetti_on(w, h)
+
+    return elapsed >= cfg['duration']
+
+
 
 
 # --- original finger counter (temporary) ---
