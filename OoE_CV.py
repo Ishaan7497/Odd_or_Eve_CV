@@ -1263,72 +1263,383 @@ def draw_quit_indicator(frame, prog, w, h):
 
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+#  MODEL PATH
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def find_model():
+    candidates = [
+        os.environ.get("HAND_LANDMARKER_PATH", ""),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "hand_landmarker.task"),
+        os.path.abspath("hand_landmarker.task"),
+        os.path.expanduser("~/hand_landmarker.task"),
+        os.path.expanduser("~/Desktop/hand_landmarker.task"),
+        os.path.expanduser("~/Desktop/OOEFOLDER/hand_landmarker.task"),
+    ]
+    for p in candidates:
+        if p and os.path.isfile(p):
+            return p
+    print("ERROR: hand_landmarker.task not found.")
+    print("Place hand_landmarker.task next to this script,")
+    print("or set HAND_LANDMARKER_PATH env var.")
+    sys.exit(1)
 
 
-# --- original finger counter (temporary) ---
+def main():
+    model_path = find_model()
+    base = mp_python.BaseOptions(model_asset_path=model_path)
+    det = vision.HandLandmarker.create_from_options(
+        vision.HandLandmarkerOptions(base_options=base, num_hands=2))
 
-mp_hands = mp.solutions.hands
-hands = mp_hands.Hands(max_num_hands=1)
+    cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        print("ERROR: could not open webcam.")
+        sys.exit(1)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 960)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+    cv2.namedWindow("Hand Cricket", cv2.WINDOW_NORMAL)
 
-mp_draw = mp.solutions.drawing_utils
+    bgm_start(volume=0.20)
 
+    gc = GestureConfirm()
+    quit_det = QuitDetector()
+    g = new_game()
+    brain = Brain('EASY')
+    dlbl, dkey = ' EASY', 'EASY'
+    frame_idx = 0
+    PAUSE_SECONDS = 1.2
 
-tip_ids = [4, 8, 12, 16, 20]
+    while True:
+        ok, frame = cap.read()
+        if not ok:
+            break
+        frame = cv2.flip(frame, 1)
+        h, w = frame.shape[:2]
+        frame_idx += 1
 
-cap = cv2.VideoCapture(0)
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        hsv[..., 1] = (hsv[..., 1].astype(np.int32) * 80 // 100).clip(0, 255).astype(np.uint8)
+        frame = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
 
-while True:
-    success, frame = cap.read()
-    if not success:
-        break
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        mpi = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+        mpr = det.detect(mpi)
 
-   
-    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        draw_hands(frame, mpr, w, h)
 
+        state = g['state']
+        if state == 'MODE_SELECT':
+            valid = range(1, 4)
+        elif state == 'DIFFICULTY_SELECT':
+            valid = range(1, 4)
+        elif state in ('TOSS_CHOICE', 'TOSS_NUMBER', 'BAT_BOWL'):
+            valid = range(1, 3)
+        elif state in ('COIN_ANIM', 'TOSS_RESULT', 'INNINGS_BREAK',
+                       'GAME_RESULT', 'CELEBRATION'):
+            valid = range(1, 11)
+        else:
+            valid = g['run_range'] or range(1, 7)
 
-    results = hands.process(rgb)
+        raw = raw_gesture(mpr, valid)
+        conf, prog = gc.update(raw)
 
-    total_fingers = 0
+        # Quit gesture (closed fist held for 1.5s) — works in any state
+        quit_active, quit_prog = quit_det.update(mpr)
+        if quit_prog >= 1.0:
+            break
 
-    if results.multi_hand_landmarks:
-        for hand_landmarks in results.multi_hand_landmarks:
+        if state not in ('MODE_SELECT', 'DIFFICULTY_SELECT'):
+            topbar(frame, g, w, dlbl, dkey)
+        gesture_indicator(frame, raw, prog, w)
+        progress_bar(frame, prog, w, h)
+        draw_quit_indicator(frame, quit_prog, w, h)
 
-            mp_draw.draw_landmarks(
-                frame,
-                hand_landmarks,
-                mp_hands.HAND_CONNECTIONS
-            )
+        if state == 'MODE_SELECT':
+            screen_mode_select(frame, conf, w, h, frame_idx)
+            if conf in (1, 2, 3):
+                g['mode'] = ['1 to 6', '1 to 10', 'CRAZY'][conf - 1]
+                g['run_range'] = [range(1, 7), range(1, 11), range(1, 11)][conf - 1]
+                g['state'] = 'DIFFICULTY_SELECT'
+                play('click'); gc.reset()
 
-            landmarks = hand_landmarks.landmark
-            fingers = []
+        elif state == 'DIFFICULTY_SELECT':
+            screen_difficulty(frame, conf, w, h, frame_idx)
+            if conf in (1, 2, 3):
+                dmap = {1: (' EASY', 'EASY'), 2: ('MEDIUM', 'MEDIUM'), 3: ('  HARD', 'HARD')}
+                dlbl, dkey = dmap[conf]
+                brain = Brain(dkey)
+                g['state'] = 'TOSS_CHOICE'
+                play('click'); gc.reset()
 
-            if landmarks[4].x > landmarks[3].x:
-                fingers.append(1)
+        elif state == 'TOSS_CHOICE':
+            screen_toss_choice(frame, w, h)
+            if conf in (1, 2):
+                g['toss_choice'] = "ODD" if conf == 1 else "EVEN"
+                g['state'] = 'TOSS_NUMBER'
+                play('click'); gc.reset()
+
+        elif state == 'TOSS_NUMBER':
+            screen_toss_number(frame, g, w, h)
+            if conf in (1, 2):
+                cn = random.randint(1, 2)
+                tot = conf + cn
+                rs = "EVEN" if tot % 2 == 0 else "ODD"
+                won = rs == g['toss_choice']
+                g.update({
+                    'toss_user_num': conf, 'toss_comp_num': cn,
+                    'toss_total': tot, 'toss_result_str': rs,
+                    'user_won_toss': won, 'coin_timer': 0,
+                })
+                if not won:
+                    dec = random.choice(['BAT', 'BOWL'])
+                    g.update({
+                        'toss_comp_dec': dec,
+                        'user_batting': (dec == 'BOWL'),
+                        'batting_first': 'user' if dec == 'BOWL' else 'computer',
+                    })
+                play('coin')
+                g['state'] = 'COIN_ANIM'
+                gc.reset()
+
+        elif state == 'COIN_ANIM':
+            g['coin_timer'] += 1
+            draw_coin(frame, g['coin_timer'],
+                      g['toss_user_num'], g['toss_comp_num'], w, h)
+            if g['coin_timer'] >= COIN_DUR:
+                g['state'] = 'TOSS_RESULT'
+                if g['user_won_toss']:
+                    play('toss_win')
+
+        elif state == 'TOSS_RESULT':
+            screen_toss_result(frame, g, conf, w, h)
+            if g['user_won_toss']:
+                if conf in (1, 2):
+                    g['user_batting'] = (conf == 1)
+                    g['batting_first'] = 'user' if conf == 1 else 'computer'
+                    g['current_runs'] = 0
+                    g['state'] = 'PLAYING'
+                    play('click'); gc.reset()
             else:
-                fingers.append(0)
+                if conf is not None:
+                    g['current_runs'] = 0
+                    g['state'] = 'PLAYING'
+                    play('click'); gc.reset()
 
-            for i in range(1,5):
-                if landmarks[tip_ids[i]].y < landmarks[tip_ids[i]-2].y:
-                    fingers.append(1)
+        elif state == 'PLAYING':
+            screen_play(frame, g, dlbl, dkey, w, h)
+            if conf is not None:
+                brain.record(conf)
+                comp = brain.pick(g['run_range'], not g['user_batting'])
+                bv = conf if g['user_batting'] else comp
+                bw = comp if g['user_batting'] else conf
+                runs, out, msg = resolve(bv, bw, g['mode'])
+                if not out:
+                    g['current_runs'] += runs
+                g.update({
+                    'you_showed': conf, 'comp_showed': comp,
+                    'ball_msg': msg, 'ball_out': out, 'ball_runs': runs,
+                    'ball_timer': time.time(), 'state': 'BALL_RESULT',
+                })
+
+                is_six  = (g['mode'] == '1 to 6'  and bv == 6)
+                is_ten  = (g['mode'] == '1 to 10' and bv == 10)
+                is_sq   = (g['mode'] == 'CRAZY'   and not out and bv == bw)
+                is_four = (g['mode'] == '1 to 6'  and bv == 4) or \
+                          (g['mode'] == '1 to 10' and bv in (7, 8))
+
+                if out:
+                    if g['user_batting']:
+                        # User got out — red flash + camera shake
+                        fx.trigger('OUT')
+                        g['pending_celebration'] = 'OUT_BATTING'
+                    else:
+                        # User took a wicket — green flash (positive)
+                        fx.trigger('FLASH', col=(95, 220, 120))
+                        g['pending_celebration'] = 'WICKET_BOWLING'
+                elif is_six or is_ten or is_sq:
+                    lbl = "SIX!" if is_six else ("TEN!" if is_ten else f"{bv}^2={runs}!")
+                    if g['user_batting']:
+                        fx.trigger('BIGRUN', lbl=lbl)
+                        fx.trigger('RUN_POP', runs=runs, col=GOLD)
+                        play('six')
+                    else:
+                        fx.trigger('FLASH', col=(60, 60, 200))
+                        fx.trigger('RUN_POP', runs=runs, col=(80, 100, 240))
+                        play('out')
+                elif is_four:
+                    if g['user_batting']:
+                        fx.trigger('FLASH', col=(160, 230, 90))
+                        fx.trigger('RUN_POP', runs=runs, col=PRIMARY)
+                        play('four')
+                    else:
+                        fx.trigger('FLASH', col=(80, 80, 200))
+                        fx.trigger('RUN_POP', runs=runs, col=(80, 100, 240))
+                        play('run')
                 else:
-                    fingers.append(0)
+                    if g['user_batting']:
+                        fx.trigger('FLASH', col=(95, 220, 120))
+                        fx.trigger('RUN_POP', runs=runs, col=PRIMARY)
+                        play('run')
+                    else:
+                        fx.trigger('FLASH', col=(70, 70, 130))
+                        fx.trigger('RUN_POP', runs=runs, col=(120, 130, 220))
+                        play('hover')
 
-            total_fingers = fingers.count(1)
+                # Milestone celebrations (batting only)
+                if g['user_batting'] and not out:
+                    if not g['fifty_shown'] and g['current_runs'] >= 50:
+                        g['fifty_shown'] = True
+                        g['pending_celebration'] = 'FIFTY'
+                    elif not g['hundred_shown'] and g['current_runs'] >= 100:
+                        g['hundred_shown'] = True
+                        g['pending_celebration'] = 'HUNDRED'
+                gc.reset()
 
-    cv2.putText(
-        frame,
-        f"Fingers: {total_fingers}",
-        (50,100),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        2,
-        (0,255,0),
-        3
-    )
+        elif state == 'BALL_RESULT':
+            screen_ball_result(frame, g, w, h, PAUSE_SECONDS)
+            start = g.get('ball_timer') or time.time()
+            elapsed = time.time() - start
+            if elapsed > PAUSE_SECONDS:
+                # Figure out what state SHOULD come next (innings break, game result, or back to playing)
+                over = False
+                if g['ball_out'] and not g['is_super_over']:
+                    over = True
+                elif g['is_super_over']:
+                    g['super_balls'] -= 1
+                    if g['super_balls'] <= 0:
+                        over = True
+                elif g['innings'] == 1 and g['current_runs'] > g['innings_scores'][0]:
+                    over = True
 
-    cv2.imshow("Hand Cricket Input", frame)
+                next_state_update = None  # dict of game updates for the post-celebration state
+                if over:
+                    if g['is_super_over']:
+                        if g['innings'] == 0:
+                            next_state_update = {
+                                'innings_scores': [g['current_runs'], None],
+                                'innings': 1,
+                                'user_batting': not g['user_batting'],
+                                'current_runs': 0, 'super_balls': 6,
+                                'state': 'INNINGS_BREAK',
+                            }
+                        else:
+                            next_state_update = {
+                                'innings_scores': [g['innings_scores'][0], g['current_runs']],
+                                'state': 'GAME_RESULT',
+                            }
+                    elif g['innings'] == 0:
+                        next_state_update = {
+                            'innings_scores': [g['current_runs'], None],
+                            'innings': 1,
+                            'user_batting': not g['user_batting'],
+                            'current_runs': 0,
+                            'state': 'INNINGS_BREAK',
+                        }
+                    else:
+                        new_scores = [g['innings_scores'][0], g['current_runs']]
+                        if new_scores[0] == new_scores[1]:
+                            next_state_update = {
+                                'innings_scores': new_scores,
+                                'is_super_over': True, 'innings': 0,
+                                'current_runs': 0, 'super_balls': 6,
+                                'user_batting': True, 'batting_first': 'user',
+                                'state': 'INNINGS_BREAK',
+                            }
+                            # reset the recorded scores for super over fresh start
+                            next_state_update['innings_scores'] = [None, None]
+                        else:
+                            next_state_update = {
+                                'innings_scores': new_scores,
+                                'state': 'GAME_RESULT',
+                            }
+                else:
+                    next_state_update = {'state': 'PLAYING'}
 
-    if cv2.waitKey(1) & 0xFF == 27:
-        break
+                # If a celebration is pending, run it first; otherwise just transition.
+                if g.get('pending_celebration'):
+                    g['_post_celebration_update'] = next_state_update
+                    g['celebration_start'] = time.time()
+                    g['celebration_acknowledged'] = False
+                    g.pop('_celebration_sounds_played', None)
+                    g['state'] = 'CELEBRATION'
+                    bgm_volume(0.06)  # duck music for crowd reactions
+                else:
+                    g.update(next_state_update)
 
-cap.release()
-cv2.destroyAllWindows()
+        elif state == 'CELEBRATION':
+            kind = g.get('pending_celebration')
+            if kind is None:
+                # safety: nothing pending, just resume
+                upd = g.pop('_post_celebration_update', None)
+                if upd:
+                    g.update(upd)
+                else:
+                    g['state'] = 'PLAYING'
+                bgm_volume(0.20)
+            else:
+                done = screen_celebration(frame, g, kind, w, h, mpr, frame_idx)
+                if done:
+                    g['pending_celebration'] = None
+                    upd = g.pop('_post_celebration_update', None)
+                    g['celebration_start'] = None
+                    g['celebration_acknowledged'] = False
+                    g.pop('_celebration_sounds_played', None)
+                    # Stop any confetti/FX from the celebration
+                    fx.confetti = None
+                    bgm_volume(0.20)  # restore music
+                    if upd:
+                        g.update(upd)
+                    else:
+                        # came from GAME_RESULT path — just stay there
+                        g['state'] = 'GAME_RESULT'
+                    gc.reset()
+
+        elif state == 'INNINGS_BREAK':
+            screen_innings_break(frame, g, w, h)
+            if conf is not None:
+                g['state'] = 'PLAYING'
+                play('click'); gc.reset()
+
+        elif state == 'GAME_RESULT':
+            screen_game_result(frame, g, dlbl, w, h)
+            s1, s2 = g['innings_scores']
+            user_s, cpu_s = (s1, s2) if g['batting_first'] == 'user' else (s2, s1)
+            if not g.get('result_sound_played', False) and user_s is not None and cpu_s is not None:
+                if user_s > cpu_s:
+                    fx.trigger('WIN'); fx.confetti_on(w, h); play('win')
+                elif cpu_s > user_s:
+                    play('lose')
+                else:
+                    play('tie')
+                g['result_sound_played'] = True
+            # Match-end celebration (plays once)
+            if not g.get('match_celebration_shown', False) and \
+                    user_s is not None and cpu_s is not None and user_s != cpu_s:
+                g['match_celebration_shown'] = True
+                g['pending_celebration'] = 'MATCH_WIN' if user_s > cpu_s else 'MATCH_LOSE'
+                g['celebration_start'] = time.time()
+                g['celebration_acknowledged'] = False
+                g.pop('_celebration_sounds_played', None)
+                g['_post_celebration_update'] = {'state': 'GAME_RESULT'}
+                g['state'] = 'CELEBRATION'
+            if conf == 1:
+                g = new_game(); fx.clear(); play('click'); gc.reset()
+            elif conf == 2:
+                break
+
+        fx.draw(frame)
+        cv2.imshow("Hand Cricket", frame)
+        key = cv2.waitKey(1) & 0xFF
+        if key == 27 or key == ord('q') or key == ord('Q'):  # ESC or Q
+            break
+
+    cap.release()
+    cv2.destroyAllWindows()
+    det.close()
+    bgm_stop()
+    if SOUND_ON:
+        pygame.mixer.quit()
+
+
+if __name__ == "__main__":
+    main()
