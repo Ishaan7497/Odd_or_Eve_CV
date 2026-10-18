@@ -807,6 +807,63 @@ def new_game():
     }
 
 
+def end_of_ball_update(g):
+    """Decide where the match goes after a ball has been resolved.
+
+    Returns a dict of updates for the game state (it does not modify `g`):
+    back to PLAYING, an INNINGS_BREAK (including the start of a super over),
+    or the final GAME_RESULT.
+
+    Rules:
+      * Normal innings end on the first wicket.
+      * A super over is 6 balls per side; wickets cost no runs but do not
+        end the innings.
+      * A chase (2nd innings) ends as soon as the target is passed.
+      * A tie after two normal innings starts a super over (user bats first).
+    """
+    first = g['innings_scores'][0]
+    chasing = g['innings'] == 1 and first is not None
+    target_passed = chasing and g['current_runs'] > first
+
+    upd = {}
+    if g['is_super_over']:
+        balls_left = g['super_balls'] - 1
+        upd['super_balls'] = balls_left
+        over = balls_left <= 0 or target_passed
+    else:
+        over = g['ball_out'] or target_passed
+
+    if not over:
+        upd['state'] = 'PLAYING'
+        return upd
+
+    if g['innings'] == 0:
+        upd.update({
+            'innings_scores': [g['current_runs'], None],
+            'innings': 1,
+            'user_batting': not g['user_batting'],
+            'current_runs': 0,
+            'state': 'INNINGS_BREAK',
+        })
+        if g['is_super_over']:
+            upd['super_balls'] = 6
+        return upd
+
+    scores = [first, g['current_runs']]
+    if scores[0] == scores[1] and not g['is_super_over']:
+        upd.update({
+            'innings_scores': [None, None],
+            'is_super_over': True, 'innings': 0,
+            'current_runs': 0, 'super_balls': 6,
+            'user_batting': True, 'batting_first': 'user',
+            'state': 'INNINGS_BREAK',
+        })
+        return upd
+
+    upd.update({'innings_scores': scores, 'state': 'GAME_RESULT'})
+    return upd
+
+
 def screen_mode_select(frame, conf, w, h, t):
     vignette(frame, alpha=0.7)
     pulse = 1.0 + 0.04 * np.sin(t * 0.08)
@@ -1503,60 +1560,8 @@ def main():
             start = g.get('ball_timer') or time.time()
             elapsed = time.time() - start
             if elapsed > PAUSE_SECONDS:
-                # Figure out what state SHOULD come next (innings break, game result, or back to playing)
-                over = False
-                if g['ball_out'] and not g['is_super_over']:
-                    over = True
-                elif g['is_super_over']:
-                    g['super_balls'] -= 1
-                    if g['super_balls'] <= 0:
-                        over = True
-                elif g['innings'] == 1 and g['current_runs'] > g['innings_scores'][0]:
-                    over = True
-
-                next_state_update = None  # dict of game updates for the post-celebration state
-                if over:
-                    if g['is_super_over']:
-                        if g['innings'] == 0:
-                            next_state_update = {
-                                'innings_scores': [g['current_runs'], None],
-                                'innings': 1,
-                                'user_batting': not g['user_batting'],
-                                'current_runs': 0, 'super_balls': 6,
-                                'state': 'INNINGS_BREAK',
-                            }
-                        else:
-                            next_state_update = {
-                                'innings_scores': [g['innings_scores'][0], g['current_runs']],
-                                'state': 'GAME_RESULT',
-                            }
-                    elif g['innings'] == 0:
-                        next_state_update = {
-                            'innings_scores': [g['current_runs'], None],
-                            'innings': 1,
-                            'user_batting': not g['user_batting'],
-                            'current_runs': 0,
-                            'state': 'INNINGS_BREAK',
-                        }
-                    else:
-                        new_scores = [g['innings_scores'][0], g['current_runs']]
-                        if new_scores[0] == new_scores[1]:
-                            next_state_update = {
-                                'innings_scores': new_scores,
-                                'is_super_over': True, 'innings': 0,
-                                'current_runs': 0, 'super_balls': 6,
-                                'user_batting': True, 'batting_first': 'user',
-                                'state': 'INNINGS_BREAK',
-                            }
-                            # reset the recorded scores for super over fresh start
-                            next_state_update['innings_scores'] = [None, None]
-                        else:
-                            next_state_update = {
-                                'innings_scores': new_scores,
-                                'state': 'GAME_RESULT',
-                            }
-                else:
-                    next_state_update = {'state': 'PLAYING'}
+                # dict of game updates for the post-celebration state
+                next_state_update = end_of_ball_update(g)
 
                 # If a celebration is pending, run it first; otherwise just transition.
                 if g.get('pending_celebration'):
