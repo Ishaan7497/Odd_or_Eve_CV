@@ -12,9 +12,9 @@
 
 ## About
 
-**Hand cricket** (also called *Odd or Even*) is a game played across South Asia with nothing but your hands. Each player throws out a number of fingers at the same time. The batter scores the number they showed, unless the bowler shows the same number, in which case the batter is **out**. The second player then bats and tries to beat the first score.
+**Hand cricket** (also called *Odd or Even*) is a game played across India with nothing but your hands. Each player throws out a number of fingers at the same time. The batter scores the number they showed, unless the bowler shows the same number, in which case the batter is **out**. The second player then bats and tries to beat the first score.
 
-This project turns that playground game into a real-time computer vision application. A webcam feed is processed by Google's **MediaPipe HandLandmarker** model, which finds 21 3-D landmarks on each hand. The game then works out which fingers are extended, turns that into a number from 1 to 10, and plays a full match against a CPU opponent. There's no keyboard or mouse in the loop: menus, the toss, batting, bowling and even quitting are all controlled by hand gestures.
+This project turns that playground game into a real-time computer vision application. A webcam feed is processed by Google's **MediaPipe HandLandmarker** model, which finds 21 3-D landmarks on each hand. The game then works out which fingers are extended, turns that into a number from 1 to 10, and plays a full match against a CPU opponent. There's no keyboard or mouse in the loop: menus, the toss, batting, bowling, and even quitting are all controlled by hand gestures.
 
 Some of the problems it solves:
 
