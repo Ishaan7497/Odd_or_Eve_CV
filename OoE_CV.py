@@ -840,7 +840,7 @@ def screen_mode_select(frame, conf, w, h, t):
         (tw, _), _ = cv2.getTextSize(ges, cv2.FONT_HERSHEY_DUPLEX, 0.65, 2)
         text(frame, ges, (x2 - tw - 28, y + card_h // 2 + 8), 0.65, TEXT)
 
-    text(frame, "Hold the gesture for 1 second to confirm",
+    text(frame, "Hold the gesture until the ring fills",
          (w // 2, h - 28), 0.7, TEXT_MUTE, center=True)
 
 
@@ -883,7 +883,7 @@ def screen_difficulty(frame, conf, w, h, t):
         (tw, _), _ = cv2.getTextSize(ges, cv2.FONT_HERSHEY_DUPLEX, 0.65, 2)
         text(frame, ges, (x2 - tw - 28, y + card_h // 2 + 8), 0.65, TEXT)
 
-    text(frame, "Hold the gesture for 1 second to confirm",
+    text(frame, "Hold the gesture until the ring fills",
          (w // 2, h - 28), 0.7, TEXT_MUTE, center=True)
 
 
