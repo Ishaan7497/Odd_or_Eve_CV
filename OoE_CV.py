@@ -555,6 +555,13 @@ def _d(a, b):
 
 
 def fstates(lms):
+    """Return (thumb, index, middle, ring, pinky) as 1 = extended, 0 = folded.
+
+    Distances are measured relative to the palm size (wrist to middle-finger
+    knuckle), so detection works whether the hand is near or far from the
+    camera. A finger counts as extended when its tip is farther from the
+    wrist than its middle joint; the thumb counts when its tip is well away
+    from the index knuckle."""
     hs = _d(lms[0], lms[9])
     if hs < 0.001:
         return (0, 0, 0, 0, 0)
@@ -564,10 +571,12 @@ def fstates(lms):
 
 
 def is_cup(hl):
+    """Two hands, each with at most one finger up, is the gesture for 10."""
     return len(hl) >= 2 and all(sum(fstates(l)) <= 1 for l in hl)
 
 
 def raw_gesture(mpr, valid):
+    """Map the detected hand(s) to a number in `valid`, or None if unclear."""
     if not mpr.hand_landmarks:
         return None
     if 10 in valid and is_cup(mpr.hand_landmarks):
@@ -594,6 +603,11 @@ def draw_hands(frame, mpr, w, h):
 
 
 class GestureConfirm:
+    """Only accept a gesture once it has been held steadily for `hold` seconds.
+
+    update() returns (confirmed_value_or_None, progress 0..1). Any change of
+    gesture, or losing the hand, restarts the timer."""
+
     def __init__(self, hold=1.30):
         self.hold = hold
         self.cur = None
@@ -624,6 +638,14 @@ class GestureConfirm:
 
 
 class Brain:
+    """The CPU opponent.
+
+    EASY   - random, slightly favouring bigger numbers.
+    MEDIUM - sometimes plays the player's most common recent number when
+             bowling (to get them out) and avoids it when batting.
+    HARD   - does the same more often and favours big numbers when batting.
+    The history only ever contains the player's *previous* gestures."""
+
     def __init__(self, diff):
         self.diff = diff
         self.hist = []
@@ -773,6 +795,11 @@ def gesture_indicator(frame, raw, prog, w):
 
 
 def resolve(bat, bowl, mode):
+    """Score one ball. Returns (runs, is_out, message).
+
+    Normal modes: same number = OUT, otherwise the batter scores their number.
+    CRAZY: adjacent numbers (including 10 and 1) = OUT, same number scores
+    its square, otherwise the batter scores their number."""
     if mode == 'CRAZY':
         d = abs(bat - bowl)
         if d == 1 or d == 9:
@@ -1247,7 +1274,6 @@ def screen_celebration(frame, g, conf_kind, w, h, mpr, frame_idx):
     if auto_sounds:
         for idx, (snd, delay) in enumerate(auto_sounds):
             if idx not in sounds_played and elapsed >= delay:
-                print(f"[debug] celebration sound: {snd} (elapsed={elapsed:.2f}s, kind={conf_kind})")
                 play(snd)
                 sounds_played.add(idx)
 
@@ -1262,7 +1288,6 @@ def screen_celebration(frame, g, conf_kind, w, h, mpr, frame_idx):
                  0.6, TEXT_MUTE, center=True)
             if is_hand_raised(mpr):
                 if cfg.get('cheer_sound'):
-                    print(f"[debug] hand-raise cheer: {cfg['cheer_sound']} (kind={conf_kind})")
                     play(cfg['cheer_sound'])
                 g['celebration_acknowledged'] = True
                 g['celebration_start'] = time.time() - cfg['duration'] * 0.55
