@@ -21,6 +21,21 @@ from mediapipe.tasks import python as mp_python
 from mediapipe.tasks.python import vision
 from collections import Counter
 
+HERE = os.path.dirname(os.path.abspath(__file__))
+# Sounds, music and the hand model live in assets/; files next to the script
+# are also accepted so older checkouts keep working.
+ASSET_DIRS = (os.path.join(HERE, 'assets'), HERE)
+
+
+def find_asset(name, exts):
+    """Return the path of the first `name.<ext>` found in ASSET_DIRS, or None."""
+    for d in ASSET_DIRS:
+        for ext in exts:
+            path = os.path.join(d, f"{name}.{ext}")
+            if os.path.isfile(path):
+                return path
+    return None
+
 try:
     import pygame
     pygame.mixer.init(frequency=22050, size=-16, channels=2, buffer=512)
@@ -162,21 +177,17 @@ if SOUND_ON:
                 play._failed.add(name)
                 print(f"[sound] play({name!r}) failed: {e}")
 
-    # Optional: override any sound by dropping a matching audio file next to the script.
+    # Optional: override any sound by dropping a matching audio file into assets/.
     # Recognized: out_call.{mp3,wav,ogg}, crowd_cheer.{mp3,wav,ogg}, crowd_aww.{mp3,wav,ogg},
     # stumps_hit.{mp3,wav,ogg}, etc. The synthesized version is kept as fallback.
-    _script_dir = (os.path.dirname(os.path.abspath(__file__))
-                   if '__file__' in globals() else os.getcwd())
     for _name in list(SND.keys()):
-        for _ext in ('mp3', 'wav', 'ogg'):
-            _override_path = os.path.join(_script_dir, f"{_name}.{_ext}")
-            if os.path.isfile(_override_path):
-                try:
-                    SND[_name] = pygame.mixer.Sound(_override_path)
-                    print(f"[sound] loaded override: {_name}.{_ext}")
-                    break
-                except Exception as _e:
-                    print(f"[sound] failed to load override {_name}.{_ext}: {_e}")
+        _override_path = find_asset(_name, ('mp3', 'wav', 'ogg'))
+        if _override_path:
+            try:
+                SND[_name] = pygame.mixer.Sound(_override_path)
+                print(f"[sound] loaded override: {os.path.basename(_override_path)}")
+            except Exception as _e:
+                print(f"[sound] failed to load override {_override_path}: {_e}")
 
     # Confirm audio actually plays by triggering a quick startup chime
     try:
@@ -221,20 +232,11 @@ else:
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  BACKGROUND MUSIC
-#  Looks for bgm.mp3 / bgm.wav / bgm.ogg next to this script and loops it.
+#  Looks for bgm.mp3 / bgm.wav / bgm.ogg in assets/ and loops it.
 #  Pauses during celebrations and louder moments so SFX cut through.
 # ─────────────────────────────────────────────────────────────────────────────
 
-BGM_PATH = None
-for _candidate in ('bgm.mp3', 'bgm.ogg', 'bgm.wav'):
-    _p = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals()
-        else os.getcwd(),
-        _candidate,
-    )
-    if os.path.isfile(_p):
-        BGM_PATH = _p
-        break
+BGM_PATH = find_asset('bgm', ('mp3', 'ogg', 'wav'))
 
 
 def bgm_start(volume=0.20):
@@ -266,7 +268,7 @@ def bgm_stop():
 
 
 if BGM_PATH is None:
-    print("[sound] (no bgm.mp3/ogg/wav found next to the script; "
+    print("[sound] (no bgm.mp3/ogg/wav found in assets/; "
           "drop one in to enable background music)")
 
 
@@ -1341,20 +1343,20 @@ def draw_quit_indicator(frame, prog, w, h):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def find_model():
-    candidates = [
-        os.environ.get("HAND_LANDMARKER_PATH", ""),
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "hand_landmarker.task"),
-        os.path.abspath("hand_landmarker.task"),
-        os.path.expanduser("~/hand_landmarker.task"),
-        os.path.expanduser("~/Desktop/hand_landmarker.task"),
-        os.path.expanduser("~/Desktop/OOEFOLDER/hand_landmarker.task"),
-    ]
-    for p in candidates:
-        if p and os.path.isfile(p):
-            return p
+    """Locate the MediaPipe hand model, or exit with a helpful message."""
+    env = os.environ.get("HAND_LANDMARKER_PATH", "")
+    if env:
+        if os.path.isfile(env):
+            return env
+        print(f"WARNING: HAND_LANDMARKER_PATH={env!r} does not exist; "
+              "falling back to assets/.")
+    p = find_asset("hand_landmarker", ("task",))
+    if p:
+        return p
+    if os.path.isfile("hand_landmarker.task"):
+        return os.path.abspath("hand_landmarker.task")
     print("ERROR: hand_landmarker.task not found.")
-    print("Place hand_landmarker.task next to this script,")
-    print("or set HAND_LANDMARKER_PATH env var.")
+    print("Place it in the assets/ folder, or set the HAND_LANDMARKER_PATH env var.")
     sys.exit(1)
 
 
