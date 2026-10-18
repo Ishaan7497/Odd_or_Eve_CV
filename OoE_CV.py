@@ -1358,6 +1358,18 @@ def find_model():
     sys.exit(1)
 
 
+WINDOW = "Hand Cricket"
+
+
+def window_closed(name):
+    """True once the user has closed the game window with its close button."""
+    try:
+        return cv2.getWindowProperty(name, cv2.WND_PROP_VISIBLE) < 1
+    except cv2.error:
+        # Some backends (e.g. macOS) raise once the window no longer exists.
+        return True
+
+
 def main():
     model_path = find_model()
     base = mp_python.BaseOptions(model_asset_path=model_path)
@@ -1370,7 +1382,7 @@ def main():
         sys.exit(1)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 960)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-    cv2.namedWindow("Hand Cricket", cv2.WINDOW_NORMAL)
+    cv2.namedWindow(WINDOW, cv2.WINDOW_NORMAL)
 
     bgm_start(volume=0.20)
 
@@ -1381,11 +1393,21 @@ def main():
     dlbl, dkey = ' EASY', 'EASY'
     frame_idx = 0
     PAUSE_SECONDS = 1.2
+    MAX_DROPPED_FRAMES = 30  # ~1s of failed reads before giving up
+    dropped = 0
 
     while True:
         ok, frame = cap.read()
-        if not ok:
-            break
+        if not ok or frame is None:
+            # Webcams occasionally drop a frame; only quit if the feed is gone.
+            dropped += 1
+            if dropped > MAX_DROPPED_FRAMES:
+                print("ERROR: lost the webcam feed.")
+                break
+            if (cv2.waitKey(30) & 0xFF) in (27, ord('q'), ord('Q')):
+                break
+            continue
+        dropped = 0
         frame = cv2.flip(frame, 1)
         h, w = frame.shape[:2]
         frame_idx += 1
@@ -1416,7 +1438,7 @@ def main():
         raw = raw_gesture(mpr, valid)
         conf, prog = gc.update(raw)
 
-        # Quit gesture (closed fist held for 1.5s) — works in any state
+        # Quit gesture (both fists held for QUIT_HOLD seconds) — works in any state
         quit_active, quit_prog = quit_det.update(mpr)
         if quit_prog >= 1.0:
             break
@@ -1653,9 +1675,11 @@ def main():
             gc.reset()
 
         fx.draw(frame)
-        cv2.imshow("Hand Cricket", frame)
+        cv2.imshow(WINDOW, frame)
         key = cv2.waitKey(1) & 0xFF
         if key == 27 or key == ord('q') or key == ord('Q'):  # ESC or Q
+            break
+        if window_closed(WINDOW):  # window's close button
             break
 
     cap.release()
