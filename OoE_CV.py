@@ -1429,8 +1429,10 @@ def main():
         elif state == 'PLAYING':
             screen_play(frame, g, dlbl, dkey, w, h)
             if conf is not None:
-                brain.record(conf)
+                # The CPU must choose before it learns this ball's gesture,
+                # otherwise the "prediction" would be reading the player's hand.
                 comp = brain.pick(g['run_range'], not g['user_batting'])
+                brain.record(conf)
                 bv = conf if g['user_batting'] else comp
                 bw = comp if g['user_batting'] else conf
                 runs, out, msg = resolve(bv, bw, g['mode'])
