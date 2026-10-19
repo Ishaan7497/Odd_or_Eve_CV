@@ -26,6 +26,10 @@ Some of the problems it solves:
 
 ---
 
+## Why I built this
+
+---
+
 ## Features
 
 | | |
