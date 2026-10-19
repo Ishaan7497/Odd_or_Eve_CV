@@ -286,7 +286,11 @@ BLUE        = (240, 175, 90)
 PURPLE      = (220, 100, 240)
 
 
+FONT = cv2.FONT_HERSHEY_DUPLEX
+
+
 def rounded_rect(frame, pt1, pt2, color, radius=12, thickness=-1):
+    """Filled (thickness=-1) or outlined rectangle with rounded corners."""
     x1, y1 = pt1
     x2, y2 = pt2
     radius = max(0, min(radius, (x2 - x1) // 2, (y2 - y1) // 2))
@@ -297,6 +301,71 @@ def rounded_rect(frame, pt1, pt2, color, radius=12, thickness=-1):
         cv2.circle(frame, (x2 - radius, y1 + radius), radius, color, -1, cv2.LINE_AA)
         cv2.circle(frame, (x1 + radius, y2 - radius), radius, color, -1, cv2.LINE_AA)
         cv2.circle(frame, (x2 - radius, y2 - radius), radius, color, -1, cv2.LINE_AA)
+        return
+    t = thickness
+    cv2.line(frame, (x1 + radius, y1), (x2 - radius, y1), color, t, cv2.LINE_AA)
+    cv2.line(frame, (x1 + radius, y2), (x2 - radius, y2), color, t, cv2.LINE_AA)
+    cv2.line(frame, (x1, y1 + radius), (x1, y2 - radius), color, t, cv2.LINE_AA)
+    cv2.line(frame, (x2, y1 + radius), (x2, y2 - radius), color, t, cv2.LINE_AA)
+    if radius > 0:
+        r = (radius, radius)
+        cv2.ellipse(frame, (x1 + radius, y1 + radius), r, 180, 0, 90, color, t, cv2.LINE_AA)
+        cv2.ellipse(frame, (x2 - radius, y1 + radius), r, 270, 0, 90, color, t, cv2.LINE_AA)
+        cv2.ellipse(frame, (x2 - radius, y2 - radius), r, 0, 0, 90, color, t, cv2.LINE_AA)
+        cv2.ellipse(frame, (x1 + radius, y2 - radius), r, 90, 0, 90, color, t, cv2.LINE_AA)
+
+
+def blend_rect(frame, pt1, pt2, color, alpha=0.85, radius=0):
+    """Translucent rounded rectangle, blended only over the area it covers."""
+    h, w = frame.shape[:2]
+    x1, y1 = max(0, pt1[0]), max(0, pt1[1])
+    x2, y2 = min(w, pt2[0] + 1), min(h, pt2[1] + 1)
+    if x2 <= x1 or y2 <= y1:
+        return
+    roi = frame[y1:y2, x1:x2]
+    ov = roi.copy()
+    rounded_rect(ov, (pt1[0] - x1, pt1[1] - y1), (pt2[0] - x1, pt2[1] - y1), color, radius, -1)
+    frame[y1:y2, x1:x2] = cv2.addWeighted(ov, alpha, roi, 1 - alpha, 0)
+
+
+def text_w(s, scale, bold=False):
+    """Pixel width of `s` as text() would draw it."""
+    (tw, _), _ = cv2.getTextSize(str(s), FONT, scale, 3 if bold else 2)
+    return tw
+
+
+def sheet(frame, w, h, height):
+    """Translucent panel along the bottom of the screen; returns its top y.
+    It stops short of the hold-progress bar on the bottom edge."""
+    y1 = h - height
+    panel_bg(frame, y1, h - 8, alpha=0.86)
+    return y1
+
+
+def option_card(frame, box, num, title, col, sub=None, active=False, prog=0.0):
+    """A choice the player selects by holding up `num` fingers.
+
+    While its gesture is held, the card lights up in its colour and a bar
+    along its bottom edge fills with the hold progress."""
+    x1, y1, x2, y2 = box
+    ch = y2 - y1
+    blend_rect(frame, (x1, y1), (x2, y2), PANEL_HI if active else PANEL, 0.9, 14)
+    rounded_rect(frame, (x1, y1), (x2, y2), col if active else LINE, 14, 2 if active else 1)
+    rounded_rect(frame, (x1 + 1, y1 + 12), (x1 + 6, y2 - 12), col, 2, -1)
+    r = min(22, ch // 2 - 8)
+    bx, by = x1 + 22 + r, y1 + ch // 2
+    cv2.circle(frame, (bx, by), r, col, -1, cv2.LINE_AA)
+    text(frame, num, (bx, by + int(r * 0.42)), r / 23, (10, 10, 10), bold=True,
+         shadow=False, center=True)
+    tx = bx + r + 18
+    if sub:
+        text(frame, title, (tx, y1 + ch // 2 - 6), 0.82, col, bold=True)
+        text(frame, sub, (tx, y1 + ch // 2 + min(24, ch // 2 - 10)), 0.58, TEXT_DIM)
+    else:
+        text(frame, title, (tx, y1 + ch // 2 + 11), 0.82, TEXT if active else col, bold=True)
+    if active and prog > 0:
+        cv2.line(frame, (x1 + 14, y2 - 4), (x1 + 14 + int((x2 - x1 - 28) * prog), y2 - 4),
+                 col, 4, cv2.LINE_AA)
 
 
 def panel_bg(frame, y1, y2, alpha=0.78):
@@ -598,8 +667,9 @@ def draw_hands(frame, mpr, w, h):
                      (int(lms[b].x * w), int(lms[b].y * h)),
                      (0, 200, 255), 2, cv2.LINE_AA)
         for lm in lms:
-            cv2.circle(frame, (int(lm.x * w), int(lm.y * h)),
-                       4, (255, 255, 255), -1, cv2.LINE_AA)
+            p = (int(lm.x * w), int(lm.y * h))
+            cv2.circle(frame, p, 5, DEEP, -1, cv2.LINE_AA)
+            cv2.circle(frame, p, 3, (255, 255, 255), -1, cv2.LINE_AA)
 
 
 class GestureConfirm:
@@ -704,7 +774,7 @@ def draw_coin(frame, t, user_n, comp_n, w, h):
     LAND = COIN_DUR - 15  # land 15 frames (~0.5s) before the end
 
     vignette(frame, alpha=0.62)
-    glow_text(frame, "COIN  TOSS", (w // 2, 80),
+    glow_text(frame, "COIN  TOSS", (w // 2, max(122, cy - R - 40)),
               1.3, GOLD, bold=True, layers=3, center=True)
     cv2.ellipse(frame, (cx + 6, cy + 12), (R, R // 5), 0, 0, 360,
                 (10, 12, 16), -1, cv2.LINE_AA)
@@ -741,12 +811,18 @@ def draw_coin(frame, t, user_n, comp_n, w, h):
                     (35, 200, 250), -1, cv2.LINE_AA)
         cv2.ellipse(frame, (cx, cy), (R, R), 0, 0, 360,
                     (90, 230, 255), 4, cv2.LINE_AA)
-        for num, xo, lbl in [(user_n, -55, "YOU"), (comp_n, 55, "CPU")]:
-            glow_text(frame, str(num), (cx + xo, cy + 14),
-                      1.9, (255, 255, 255), bold=True, layers=2, center=True)
+        cv2.line(frame, (cx, cy - int(R * 0.55)), (cx, cy + int(R * 0.55)),
+                 (8, 145, 210), 2, cv2.LINE_AA)
+        for num, xo, lbl in [(user_n, -int(R * 0.42), "YOU"), (comp_n, int(R * 0.42), "CPU")]:
+            glow_text(frame, str(num), (cx + xo, cy + 18),
+                      1.5, (255, 255, 255), bold=True, layers=2, center=True)
             text(frame, lbl, (cx + xo, cy + R + 38), 0.7, TEXT_DIM, center=True)
-        text(frame, f"You: {user_n}     CPU: {comp_n}",
-             (w // 2, cy + R + 78), 0.85, TEXT_DIM, center=True)
+        if user_n is not None and comp_n is not None:
+            text(frame, f"{user_n} + {comp_n} = {user_n + comp_n}",
+                 (w // 2, cy + R + 78), 0.85, TEXT, bold=True, center=True)
+
+
+MODE_NAMES = {'1 to 6': 'CLASSIC  1-6', '1 to 10': 'EXTENDED  1-10', 'CRAZY': 'CRAZY  1-10'}
 
 
 def topbar(frame, g, w, dlbl, dkey):
@@ -755,20 +831,34 @@ def topbar(frame, g, w, dlbl, dkey):
     glow_text(frame, "HAND CRICKET", (18, 34), 0.78, PRIMARY, bold=True, layers=2)
     mode_s = g.get('mode') or ''
     if mode_s:
-        text(frame, mode_s, (18, 64), 0.62, TEXT_DIM)
+        mode_s = MODE_NAMES.get(mode_s, mode_s)
+        if g.get('is_super_over'):
+            mode_s += '  |  SUPER OVER'
+        text(frame, mode_s, (18, 64), 0.58, TEXT_DIM)
     dcol = {'EASY': PRIMARY, 'MEDIUM': GOLD, 'HARD': RED}.get(dkey, TEXT)
-    pill_x = w // 2 - 70
-    draw_pill(frame, (pill_x, 38), f"CPU  {dlbl.strip()}", dcol, scale=0.55)
     s1 = '---' if g['innings_scores'][0] is None else str(g['innings_scores'][0])
     s2 = '---' if g['innings_scores'][1] is None else str(g['innings_scores'][1])
     box_w = 260
     bx1 = w - box_w - 14
-    rounded_rect(frame, (bx1, 12), (w - 14, 74), PANEL, 10, -1)
+    # Centre the difficulty pill, but keep it clear of the score box on narrow frames.
+    pill = f"CPU  {dlbl.strip()}"
+    (pw, _), _ = cv2.getTextSize(pill, FONT, 0.55, 2)
+    pill_x = min(w // 2 - (pw + 28) // 2, bx1 - pw - 28 - 16)
+    draw_pill(frame, (pill_x, 50), pill, dcol, scale=0.55)
+    # Name the innings by who batted, once the toss has decided it.
+    if g.get('batting_first') == 'user':
+        l1, l2 = 'YOU', 'CPU'
+    elif g.get('batting_first') == 'computer':
+        l1, l2 = 'CPU', 'YOU'
+    else:
+        l1, l2 = '1st', '2nd'
+    blend_rect(frame, (bx1, 12), (w - 14, 74), PANEL, 0.9, 10)
     rounded_rect(frame, (bx1, 12), (w - 14, 74), LINE, 10, 1)
-    text(frame, "1st", (bx1 + 18, 36), 0.55, TEXT_MUTE)
-    text(frame, "2nd", (bx1 + 18, 64), 0.55, TEXT_MUTE)
+    text(frame, l1, (bx1 + 18, 37), 0.52, TEXT_MUTE)
+    text(frame, l2, (bx1 + 18, 65), 0.52, TEXT_MUTE)
     text(frame, s1, (bx1 + 70, 38), 0.78, TEXT, bold=True)
     text(frame, s2, (bx1 + 70, 66), 0.78, TEXT, bold=True)
+    cv2.line(frame, (bx1 + 128, 22), (bx1 + 128, 64), LINE, 1, cv2.LINE_AA)
     if g['innings'] == 1 and g['innings_scores'][0] is not None:
         target = g['innings_scores'][0] + 1
         text(frame, f"TARGET {target}", (bx1 + 140, 38), 0.58, GOLD, bold=True)
@@ -776,7 +866,8 @@ def topbar(frame, g, w, dlbl, dkey):
         if need > 0:
             text(frame, f"NEED {need}", (bx1 + 140, 66), 0.58, TEXT_DIM)
         else:
-            text(frame, "WON!", (bx1 + 140, 66), 0.58, PRIMARY, bold=True)
+            text(frame, "CHASED", (bx1 + 140, 66), 0.58,
+                 PRIMARY if g['user_batting'] else RED, bold=True)
 
 
 def gesture_indicator(frame, raw, prog, w):
@@ -789,9 +880,12 @@ def gesture_indicator(frame, raw, prog, w):
         cv2.ellipse(frame, (cx, cy), (R - 2, R - 2),
                     -90, 0, int(360 * prog),
                     PRIMARY if prog < 1.0 else GOLD, 4, cv2.LINE_AA)
-    lbl = str(raw) if raw is not None else '.'
-    text(frame, lbl, (cx, cy + 8), 1.05, GOLD, bold=True, center=True)
-    text(frame, "HOLD", (cx, cy + R + 22), 0.42, TEXT_MUTE, center=True)
+    if raw is not None:
+        text(frame, str(raw), (cx, cy + 12), 1.05, GOLD, bold=True, center=True)
+    else:
+        cv2.circle(frame, (cx, cy), 4, TEXT_MUTE, -1, cv2.LINE_AA)
+    text(frame, "HOLD" if raw is not None else "SHOW", (cx, cy + R + 24),
+         0.45, TEXT_DIM, center=True)
 
 
 def resolve(bat, bowl, mode):
@@ -908,263 +1002,241 @@ def check_milestone(g):
     return None
 
 
-def screen_mode_select(frame, conf, w, h, t):
-    vignette(frame, alpha=0.7)
-    pulse = 1.0 + 0.04 * np.sin(t * 0.08)
-    glow_text(frame, "HAND CRICKET", (w // 2, 100),
-              1.9 * pulse, PRIMARY, bold=True, layers=4, center=True)
-    text(frame, "Pick your match format",
-         (w // 2, 140), 0.78, TEXT_DIM, center=True)
+def _menu(frame, w, h, t, title, title_col, subtitle, items, sel, prog):
+    """Shared layout for the two start menus: a title and three option cards.
+    `items` is a list of (title, subtitle, colour, stars); stars may be 0."""
+    vignette(frame, alpha=0.6)
+    pulse = 1.0 + 0.03 * np.sin(t * 0.08)
+    glow_text(frame, title, (w // 2, 100),
+              1.8 * pulse, title_col, bold=True, layers=4, center=True)
+    text(frame, subtitle, (w // 2, 142), 0.74, TEXT_DIM, center=True)
 
-    cards = [
-        ("CLASSIC",  "1 finger",  "Numbers 1 to 6",                       PRIMARY),
-        ("EXTENDED", "2 fingers", "Numbers 1 to 10",                      GOLD),
-        ("CRAZY",    "3 fingers", "Adjacent=OUT, same=squared",           PURPLE),
-    ]
-    card_h = 84
-    spacing = 14
-    total_h = len(cards) * card_h + (len(cards) - 1) * spacing
-    y0 = h // 2 - total_h // 2 + 30
-
-    for i, (title_, ges, sub, col) in enumerate(cards):
+    card_h, spacing = (84, 16) if h >= 640 else (64, 10)
+    total_h = len(items) * card_h + (len(items) - 1) * spacing
+    y0 = max(162, h // 2 - total_h // 2 + 30)
+    x1, x2 = 60, w - 60
+    for i, (name, sub, col, stars) in enumerate(items):
+        n = i + 1
         y = y0 + i * (card_h + spacing)
-        x1, x2 = 50, w - 50
-        rounded_rect(frame, (x1, y), (x2, y + card_h), PANEL, 14, -1)
-        rounded_rect(frame, (x1, y), (x2, y + card_h), LINE, 14, 1)
-        rounded_rect(frame, (x1, y), (x1 + 6, y + card_h), col, 3, -1)
-        bx = x1 + 28
-        cv2.circle(frame, (bx + 18, y + card_h // 2), 22, col, -1, cv2.LINE_AA)
-        text(frame, str(i + 1), (bx + 18, y + card_h // 2 + 9),
-             0.95, (10, 10, 10), bold=True, center=True)
-        text(frame, title_, (bx + 60, y + 36), 0.85, col, bold=True)
-        text(frame, sub,    (bx + 60, y + 64), 0.62, TEXT_DIM)
-        (tw, _), _ = cv2.getTextSize(ges, cv2.FONT_HERSHEY_DUPLEX, 0.65, 2)
-        text(frame, ges, (x2 - tw - 28, y + card_h // 2 + 8), 0.65, TEXT)
+        option_card(frame, (x1, y, x2, y + card_h), n, name, col, sub,
+                    active=(sel == n), prog=prog)
+        if stars:
+            sx = x2 - 112
+            for s in range(3):
+                draw_star(frame, (sx + s * 30, y + card_h // 2), 11,
+                          col if s < stars else (70, 76, 92))
+        elif x2 - x1 >= 700:  # narrow frames have no room beside the subtitle
+            lbl = f"{n} finger{'s' if n > 1 else ''}"
+            text(frame, lbl, (x2 - 28 - text_w(lbl, 0.6), y + card_h // 2 + 8),
+                 0.6, TEXT_DIM)
 
-    text(frame, "Hold the gesture until the ring fills",
-         (w // 2, h - 28), 0.7, TEXT_MUTE, center=True)
-
-
-def screen_difficulty(frame, conf, w, h, t):
-    vignette(frame, alpha=0.7)
-    glow_text(frame, "DIFFICULTY", (w // 2, 100),
-              1.6, GOLD, bold=True, layers=3, center=True)
-    text(frame, "How smart should the AI be?",
-         (w // 2, 140), 0.74, TEXT_DIM, center=True)
-
-    info = [
-        ("EASY",   "1 finger",  "Random: pure fun",                       PRIMARY, 1),
-        ("MEDIUM", "2 fingers", "AI notices your patterns",               GOLD,    2),
-        ("HARD",   "3 fingers", "AI tracks and counters you",             RED,     3),
-    ]
-    card_h = 84
-    spacing = 14
-    total_h = len(info) * card_h + (len(info) - 1) * spacing
-    y0 = h // 2 - total_h // 2 + 30
-
-    for i, (name, ges, desc, col, stars) in enumerate(info):
-        y = y0 + i * (card_h + spacing)
-        x1, x2 = 50, w - 50
-        rounded_rect(frame, (x1, y), (x2, y + card_h), PANEL, 14, -1)
-        rounded_rect(frame, (x1, y), (x2, y + card_h), LINE, 14, 1)
-        rounded_rect(frame, (x1, y), (x1 + 6, y + card_h), col, 3, -1)
-        text(frame, name, (x1 + 30, y + 36), 0.88, col, bold=True)
-        text(frame, desc, (x1 + 30, y + 64), 0.6, TEXT_DIM)
-        sx = x1 + 250
-        for s in range(3):
-            scol = col if s < stars else (60, 65, 80)
-            cx_, cy_ = sx + s * 28, y + 38
-            pts = []
-            for k in range(10):
-                ang = -np.pi / 2 + k * np.pi / 5
-                rr = 11 if k % 2 == 0 else 5
-                pts.append((cx_ + int(rr * np.cos(ang)),
-                            cy_ + int(rr * np.sin(ang))))
-            cv2.fillPoly(frame, [np.array(pts, dtype=np.int32)], scol, cv2.LINE_AA)
-        (tw, _), _ = cv2.getTextSize(ges, cv2.FONT_HERSHEY_DUPLEX, 0.65, 2)
-        text(frame, ges, (x2 - tw - 28, y + card_h // 2 + 8), 0.65, TEXT)
-
-    text(frame, "Hold the gesture until the ring fills",
-         (w // 2, h - 28), 0.7, TEXT_MUTE, center=True)
+    text(frame, "Hold up 1, 2 or 3 fingers until the ring fills",
+         (w // 2, h - 30), 0.64, TEXT_DIM, center=True)
 
 
-def screen_toss_choice(frame, w, h):
-    panel_bg(frame, h - 230, h - 14, alpha=0.85)
-    glow_text(frame, "TOSS CALL IT", (40, h - 192), 0.92, GOLD, bold=True, layers=2)
-    text(frame, "Show 1 finger=ODD, 2 fingers=EVEN",
-         (40, h - 142), 0.72, TEXT_DIM)
-    rounded_rect(frame, (40, h - 110), (220, h - 50), PANEL_HI, 12, -1)
-    rounded_rect(frame, (40, h - 110), (220, h - 50), PRIMARY, 12, 1)
-    text(frame, "1  =  ODD", (60, h - 70), 0.85, TEXT, bold=True)
-    rounded_rect(frame, (240, h - 110), (420, h - 50), PANEL_HI, 12, -1)
-    rounded_rect(frame, (240, h - 110), (420, h - 50), GOLD, 12, 1)
-    text(frame, "2  =  EVEN", (260, h - 70), 0.85, TEXT, bold=True)
+def draw_star(frame, center, r, col):
+    cx, cy = center
+    pts = []
+    for k in range(10):
+        ang = -np.pi / 2 + k * np.pi / 5
+        rr = r if k % 2 == 0 else r * 0.45
+        pts.append((cx + int(rr * np.cos(ang)), cy + int(rr * np.sin(ang))))
+    cv2.fillPoly(frame, [np.array(pts, dtype=np.int32)], col, cv2.LINE_AA)
 
 
-def screen_toss_number(frame, g, w, h):
-    panel_bg(frame, h - 200, h - 14, alpha=0.85)
-    text(frame, f"YOUR CALL: {g['toss_choice']}",
-         (40, h - 165), 0.85, PRIMARY, bold=True)
-    text(frame, "Show 1 or 2 fingers for your toss number",
-         (40, h - 115), 0.72, TEXT_DIM)
-    text(frame, "(CPU picks 1 or 2 too. Sum decides.)",
-         (40, h - 78), 0.6, TEXT_MUTE)
+def screen_mode_select(frame, conf, w, h, t, sel=None, prog=0.0):
+    _menu(frame, w, h, t, "HAND CRICKET", PRIMARY, "Pick your match format", [
+        ("CLASSIC",  "Numbers 1 to 6",                         PRIMARY, 0),
+        ("EXTENDED", "Numbers 1 to 10",                        GOLD,    0),
+        ("CRAZY",    "1 to 10: next-door = OUT, same = squared", PURPLE, 0),
+    ], sel, prog)
 
 
-def screen_toss_result(frame, g, conf, w, h):
-    panel_bg(frame, h - 280, h - 14, alpha=0.88)
+def screen_difficulty(frame, conf, w, h, t, sel=None, prog=0.0):
+    _menu(frame, w, h, t, "DIFFICULTY", GOLD, "How smart should the CPU be?", [
+        ("EASY",   "Random: pure fun",              PRIMARY, 1),
+        ("MEDIUM", "Notices your patterns",         GOLD,    2),
+        ("HARD",   "Tracks and counters you",       RED,     3),
+    ], sel, prog)
+
+
+def _two_options(frame, w, y, opts, sel, prog, height=64):
+    """Two option cards side by side, starting at the left margin."""
+    cw = min(260, (w - 100) // 2)
+    for i, (num, label, col) in enumerate(opts):
+        x = 40 + i * (cw + 20)
+        option_card(frame, (x, y, x + cw, y + height), num, label, col,
+                    active=(sel == num), prog=prog)
+
+
+def screen_toss_choice(frame, w, h, sel=None, prog=0.0):
+    y1 = sheet(frame, w, h, 196)
+    glow_text(frame, "TOSS: CALL IT", (40, y1 + 46), 0.95, GOLD, bold=True, layers=2)
+    text(frame, "Odd or even? Hold up 1 finger for ODD, 2 for EVEN.",
+         (40, y1 + 84), 0.66, TEXT_DIM)
+    _two_options(frame, w, y1 + 106, [(1, "ODD", PRIMARY), (2, "EVEN", GOLD)], sel, prog)
+
+
+def screen_toss_number(frame, g, w, h, sel=None, prog=0.0):
+    y1 = sheet(frame, w, h, 196)
+    x = draw_pill(frame, (40, y1 + 42), f"YOU CALLED {g['toss_choice']}", PRIMARY, scale=0.6)
+    text(frame, "Now throw 1 or 2", (x + 16, y1 + 42), 0.78, TEXT, bold=True)
+    text(frame, "The CPU throws too. The total decides the toss.",
+         (40, y1 + 84), 0.62, TEXT_DIM)
+    _two_options(frame, w, y1 + 106, [(1, "ONE", PRIMARY), (2, "TWO", GOLD)], sel, prog)
+
+
+def screen_toss_result(frame, g, conf, w, h, sel=None, prog=0.0):
+    y1 = sheet(frame, w, h, 214)
     text(frame,
-         f"You: {g['toss_user_num']}  CPU: {g['toss_comp_num']}  =  {g['toss_total']}  ({g['toss_result_str']})",
-         (40, h - 248), 0.78, TEXT)
+         f"You {g['toss_user_num']} + CPU {g['toss_comp_num']} = {g['toss_total']}  ({g['toss_result_str']})",
+         (40, y1 + 36), 0.68, TEXT_DIM)
     if g['user_won_toss']:
-        glow_text(frame, "YOU WON THE TOSS!",
-                  (40, h - 198), 1.0, PRIMARY, bold=True, layers=2)
-        text(frame, "1 finger=BAT     2 fingers=BOWL",
-             (40, h - 145), 0.82, GOLD, bold=True)
-        text(frame, "Hold to confirm",
-             (40, h - 92), 0.65, TEXT_MUTE)
+        glow_text(frame, "YOU WON THE TOSS!", (40, y1 + 82), 1.0, PRIMARY, bold=True, layers=2)
+        _two_options(frame, w, y1 + 112, [(1, "BAT", PRIMARY), (2, "BOWL", BLUE)], sel, prog)
     else:
-        text(frame, "You lost the toss.",
-             (40, h - 198), 0.9, RED)
-        text(frame, f"CPU chose to {g['toss_comp_dec']}!",
-             (40, h - 145), 0.85, GOLD, bold=True)
-        text(frame, "Show any gesture to begin",
-             (40, h - 92), 0.7, TEXT_MUTE)
+        glow_text(frame, "YOU LOST THE TOSS", (40, y1 + 82), 1.0, RED, bold=True, layers=2)
+        you = "bowl" if g['toss_comp_dec'] == 'BAT' else "bat"
+        text(frame, f"CPU chose to {g['toss_comp_dec']}, so you {you} first.",
+             (40, y1 + 128), 0.78, GOLD, bold=True)
+        text(frame, "Show any gesture to start", (40, y1 + 176), 0.64, TEXT_DIM)
 
 
 def screen_play(frame, g, dlbl, dkey, w, h):
     rng = g['run_range']
     role = "BATTING" if g['user_batting'] else "BOWLING"
     rcol = PRIMARY if g['user_batting'] else BLUE
-    panel_bg(frame, h - 240, h - 14, alpha=0.86)
-    pill_w = 240
-    rounded_rect(frame, (32, h - 230), (32 + pill_w, h - 188), DEEP, 10, -1)
-    rounded_rect(frame, (32, h - 230), (32 + pill_w, h - 188), rcol, 10, 1)
-    cv2.circle(frame, (52, h - 209), 8, rcol, -1, cv2.LINE_AA)
-    text(frame, f"YOU: {role}", (70, h - 200), 0.78, rcol, bold=True)
-    rounded_rect(frame, (w - 250, h - 230), (w - 32, h - 188), DEEP, 10, -1)
-    rounded_rect(frame, (w - 250, h - 230), (w - 32, h - 188), GOLD, 10, 1)
-    text(frame, "RUNS", (w - 232, h - 200), 0.55, TEXT_DIM)
-    text(frame, str(g['current_runs']), (w - 60, h - 200),
-         1.05, GOLD, bold=True)
+    status = None
     if g['is_super_over']:
-        text(frame, f"SUPER OVER  Balls left: {g['super_balls']}",
-             (40, h - 158), 0.74, GOLD, bold=True)
+        left = g['super_balls']
+        status = f"SUPER OVER  |  {left} ball{'s' if left != 1 else ''} left"
     elif g['innings'] == 1 and g['innings_scores'][0] is not None:
         target = g['innings_scores'][0] + 1
-        need = target - g['current_runs']
-        text(frame, f"TARGET {target}   NEED {need}",
-             (40, h - 158), 0.74, GOLD, bold=True)
-    text(frame, f"Show {rng[0]} to {rng[-1]}", (40, h - 115), 0.74, TEXT)
+        status = f"TARGET {target}  |  NEED {max(0, target - g['current_runs'])}"
+    y1 = sheet(frame, w, h, 166 if status else 130)
+
+    # Role on the left, this innings' runs on the right.
+    pill_w = 230
+    blend_rect(frame, (32, y1 + 16), (32 + pill_w, y1 + 58), DEEP, 0.9, 10)
+    rounded_rect(frame, (32, y1 + 16), (32 + pill_w, y1 + 58), rcol, 10, 1)
+    cv2.circle(frame, (54, y1 + 37), 8, rcol, -1, cv2.LINE_AA)
+    text(frame, f"YOU: {role}", (72, y1 + 46), 0.76, rcol, bold=True)
+    blend_rect(frame, (w - 232, y1 + 16), (w - 32, y1 + 58), DEEP, 0.9, 10)
+    rounded_rect(frame, (w - 232, y1 + 16), (w - 32, y1 + 58), GOLD, 10, 1)
+    text(frame, "RUNS", (w - 214, y1 + 44), 0.55, TEXT_DIM)
+    runs = str(g['current_runs'])
+    text(frame, runs, (w - 48 - text_w(runs, 1.05, True), y1 + 49), 1.05, GOLD, bold=True)
+
+    y = y1 + 94
+    if status:
+        text(frame, status, (40, y), 0.74, GOLD, bold=True)
+        y += 40
+    text(frame, f"Show {rng[0]} to {rng[-1]}", (40, y), 0.7, TEXT, bold=True)
+    x = 40 + text_w(f"Show {rng[0]} to {rng[-1]}", 0.7, True) + 18
     if g['mode'] == 'CRAZY':
-        text(frame, "Adjacent=OUT  Same number=runs squared",
-             (40, h - 75), 0.6, PURPLE)
+        text(frame, "Next-door = OUT   Same = runs squared", (x, y), 0.58, PURPLE)
     else:
-        text(frame, "Same number = OUT", (40, h - 75), 0.6, TEXT_MUTE)
+        text(frame, "Same number = OUT", (x, y), 0.58, TEXT_DIM)
     if dkey == 'HARD':
-        text(frame, "AI is reading you...", (40, h - 38), 0.55, (140, 130, 230))
+        msg = "CPU is reading you..."
+        text(frame, msg, (w - 32 - text_w(msg, 0.52), y1 + 94), 0.52, (140, 130, 230))
 
 
 def screen_ball_result(frame, g, w, h, pause_seconds):
-    panel_bg(frame, h - 250, h - 14, alpha=0.88)
+    y1 = sheet(frame, w, h, 176)
     col = RED if g['ball_out'] else PRIMARY
-    glow_text(frame, g['ball_msg'], (40, h - 220), 0.92, col, bold=True, layers=2)
-    u = "You" if g['user_batting'] else "CPU"
-    c = "CPU" if g['user_batting'] else "You"
-    text(frame, f"{u}: {g['you_showed']}     {c}: {g['comp_showed']}",
-         (40, h - 168), 0.78, TEXT_DIM)
-    text(frame, f"Innings total: {g['current_runs']}",
-         (40, h - 122), 0.82, GOLD, bold=True)
+    glow_text(frame, g['ball_msg'], (40, y1 + 50), 1.05, col, bold=True, layers=2)
+
+    # What each side threw, labelled by role.
+    you_role = "BAT" if g['user_batting'] else "BOWL"
+    cpu_role = "BOWL" if g['user_batting'] else "BAT"
+    x = 40
+    for who, role, n, c in (("YOU", you_role, g['you_showed'], PRIMARY),
+                            ("CPU", cpu_role, g['comp_showed'], BLUE)):
+        lbl = f"{who} ({role})  {n}"
+        x2 = x + text_w(lbl, 0.62) + 28
+        blend_rect(frame, (x, y1 + 72), (x2, y1 + 106), DEEP, 0.9, 10)
+        rounded_rect(frame, (x, y1 + 72), (x2, y1 + 106), c, 10, 1)
+        text(frame, lbl, (x + 14, y1 + 97), 0.62, TEXT)
+        x = x2 + 14
+
+    line = f"Innings total {g['current_runs']}"
     if g['innings'] == 1 and g['innings_scores'][0] is not None:
-        text(frame, f"Target {g['innings_scores'][0] + 1}",
-             (40, h - 80), 0.74, TEXT)
+        line += f"   |   Target {g['innings_scores'][0] + 1}"
+    text(frame, line, (40, y1 + 146), 0.76, GOLD, bold=True)
+
     start = g.get('ball_timer') or time.time()
-    elapsed = time.time() - start
-    remaining = max(0.0, pause_seconds - elapsed)
-    bar_w = 220
-    bx = w - bar_w - 30
-    by = h - 50
-    cv2.rectangle(frame, (bx, by), (bx + bar_w, by + 8), PANEL, -1)
+    remaining = max(0.0, pause_seconds - (time.time() - start))
+    bar_w = 200
+    bx, by = w - bar_w - 32, y1 + 140
     p = 1 - remaining / pause_seconds if pause_seconds > 0 else 1
-    cv2.rectangle(frame, (bx, by), (bx + int(bar_w * p), by + 8), PRIMARY, -1)
-    text(frame, f"Next ball in {remaining:.1f}s",
-         (bx, by - 6), 0.55, TEXT_MUTE)
+    rounded_rect(frame, (bx, by), (bx + bar_w, by + 8), PANEL_HI, 4, -1)
+    rounded_rect(frame, (bx, by), (bx + max(8, int(bar_w * p)), by + 8), PRIMARY, 4, -1)
+    text(frame, "Next ball", (bx, by - 10), 0.52, TEXT_DIM)
 
 
 def screen_innings_break(frame, g, w, h):
-    panel_bg(frame, h - 240, h - 14, alpha=0.88)
+    y1 = sheet(frame, w, h, 200)
+    role = "BATTING" if g['user_batting'] else "BOWLING"
+    rcol = PRIMARY if g['user_batting'] else BLUE
     if g['is_super_over'] and g['innings'] == 0:
-        glow_text(frame, "TIE! SUPER OVER!",
-                  (40, h - 210), 1.05, GOLD, bold=True, layers=2)
-        text(frame, "6 balls each. Outs cost no runs.",
-             (40, h - 158), 0.62, TEXT_DIM)
-        text(frame, "You bat first.", (40, h - 110), 0.78, PRIMARY, bold=True)
+        glow_text(frame, "TIE!  SUPER OVER", (40, y1 + 50), 1.05, GOLD, bold=True, layers=2)
+        text(frame, "6 balls each. Getting out costs that ball's runs, but you keep batting.",
+             (40, y1 + 92), 0.6, TEXT_DIM)
+        text(frame, "You bat first.", (40, y1 + 134), 0.8, PRIMARY, bold=True)
     elif g['is_super_over'] and g['innings'] == 1:
         s = g['innings_scores'][0]
-        text(frame, f"Super Over: 1st score {s}",
-             (40, h - 210), 0.85, GOLD, bold=True)
-        role = "BATTING" if g['user_batting'] else "BOWLING"
-        rcol = PRIMARY if g['user_batting'] else BLUE
-        text(frame, f"You are now {role}",
-             (40, h - 158), 0.85, rcol, bold=True)
-        text(frame, f"Target {s + 1}",
-             (40, h - 110), 0.75, GOLD, bold=True)
+        glow_text(frame, "SUPER OVER: HALF TIME", (40, y1 + 50), 1.0, GOLD, bold=True, layers=2)
+        text(frame, f"First score {s}", (40, y1 + 92), 0.74, TEXT)
+        text(frame, f"You are now {role}  |  Target {s + 1}", (40, y1 + 134), 0.8, rcol, bold=True)
     else:
         s = g['innings_scores'][0]
         who = "Your" if g['batting_first'] == 'user' else "CPU's"
-        glow_text(frame, "INNINGS OVER",
-                  (40, h - 210), 0.95, GOLD, bold=True, layers=2)
-        text(frame, f"{who} score: {s}",
-             (40, h - 162), 0.78, TEXT)
-        role = "BATTING" if g['user_batting'] else "BOWLING"
-        rcol = PRIMARY if g['user_batting'] else BLUE
-        text(frame, f"You are now {role}: Target {s + 1}",
-             (40, h - 110), 0.78, rcol, bold=True)
-    text(frame, "Show any gesture to continue",
-         (40, h - 56), 0.7, TEXT_MUTE)
+        glow_text(frame, "INNINGS OVER", (40, y1 + 50), 1.05, GOLD, bold=True, layers=2)
+        text(frame, f"{who} score: {s}", (40, y1 + 92), 0.78, TEXT)
+        text(frame, f"You are now {role}  |  Target {s + 1}", (40, y1 + 134), 0.8, rcol, bold=True)
+    text(frame, "Show any gesture to continue", (40, y1 + 176), 0.62, TEXT_DIM)
 
 
-def screen_game_result(frame, g, dlbl, w, h):
-    vignette(frame, alpha=0.78)
+def screen_game_result(frame, g, dlbl, w, h, sel=None, prog=0.0):
+    vignette(frame, alpha=0.72)
     s1, s2 = g['innings_scores']
     user_s, cpu_s = (s1, s2) if g['batting_first'] == 'user' else (s2, s1)
     if user_s is None or cpu_s is None:
         return
+    cy = h // 2 - 30
     if user_s > cpu_s:
-        glow_text(frame, "YOU WIN!",
-                  (w // 2, h // 2 - 40), 2.4, PRIMARY,
-                  bold=True, layers=4, center=True)
+        title, col = "YOU WIN!", PRIMARY
         margin = user_s - cpu_s
-        text(frame, f"By {margin} run{'s' if margin != 1 else ''}",
-             (w // 2, h // 2 + 5), 0.85, PRIMARY, center=True)
+        sub = f"By {margin} run{'s' if margin != 1 else ''}"
     elif cpu_s > user_s:
-        glow_text(frame, "YOU LOSE",
-                  (w // 2, h // 2 - 40), 2.2, RED,
-                  bold=True, layers=4, center=True)
+        title, col = "YOU LOSE", RED
         margin = cpu_s - user_s
-        text(frame, f"CPU won by {margin} run{'s' if margin != 1 else ''}",
-             (w // 2, h // 2 + 5), 0.85, RED, center=True)
+        sub = f"CPU won by {margin} run{'s' if margin != 1 else ''}"
     else:
-        glow_text(frame, "STILL A TIE",
-                  (w // 2, h // 2 - 40), 1.9, GOLD,
-                  bold=True, layers=4, center=True)
-    pre = "Super Over: " if g['is_super_over'] else ""
-    text(frame, f"{pre}You {user_s}  CPU {cpu_s}",
-         (w // 2, h // 2 + 50), 0.95, TEXT, bold=True, center=True)
-    text(frame, f"Difficulty: {dlbl.strip()}  Mode: {g['mode']}",
-         (w // 2, h // 2 + 90), 0.7, TEXT_DIM, center=True)
-    panel_bg(frame, h - 90, h - 14, alpha=0.85)
-    rounded_rect(frame, (w // 2 - 260, h - 70), (w // 2 - 20, h - 26),
-                 PANEL_HI, 12, -1)
-    rounded_rect(frame, (w // 2 - 260, h - 70), (w // 2 - 20, h - 26),
-                 PRIMARY, 12, 1)
-    text(frame, "1  PLAY AGAIN",
-         (w // 2 - 240, h - 40), 0.78, TEXT, bold=True)
-    rounded_rect(frame, (w // 2 + 20, h - 70), (w // 2 + 260, h - 26),
-                 PANEL_HI, 12, -1)
-    rounded_rect(frame, (w // 2 + 20, h - 70), (w // 2 + 260, h - 26),
-                 RED, 12, 1)
-    text(frame, "2  QUIT", (w // 2 + 100, h - 40), 0.78, TEXT, bold=True)
+        title, col, sub = "STILL A TIE", GOLD, "Level after the super over"
+    glow_text(frame, title, (w // 2, cy - 30), 2.3, col, bold=True, layers=4, center=True)
+    text(frame, sub, (w // 2, cy + 16), 0.85, col, center=True)
+
+    # Scoreline: YOU 30 | 12 CPU
+    you, cpu = str(user_s), str(cpu_s)
+    text(frame, you, (w // 2 - 24 - text_w(you, 1.3, True), cy + 82), 1.3, TEXT, bold=True)
+    text(frame, cpu, (w // 2 + 24, cy + 82), 1.3, TEXT, bold=True)
+    cv2.line(frame, (w // 2, cy + 46), (w // 2, cy + 88), LINE, 2, cv2.LINE_AA)
+    text(frame, "YOU", (w // 2 - 24 - text_w(you, 1.3, True) - 16 - text_w("YOU", 0.6), cy + 76),
+         0.6, TEXT_DIM)
+    text(frame, "CPU", (w // 2 + 24 + text_w(cpu, 1.3, True) + 16, cy + 76), 0.6, TEXT_DIM)
+    meta = f"{MODE_NAMES.get(g['mode'], g['mode'])}  |  CPU {dlbl.strip()}"
+    if g['is_super_over']:
+        meta += "  |  SUPER OVER"
+    text(frame, meta, (w // 2, cy + 122), 0.6, TEXT_DIM, center=True)
+
+    bw, gap = 240, 24
+    by1, by2 = h - 92, h - 28
+    option_card(frame, (w // 2 - gap // 2 - bw, by1, w // 2 - gap // 2, by2), 1,
+                "PLAY AGAIN", PRIMARY, active=(sel == 1), prog=prog)
+    option_card(frame, (w // 2 + gap // 2, by1, w // 2 + gap // 2 + bw, by2), 2,
+                "QUIT", RED, active=(sel == 2), prog=prog)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1345,20 +1417,21 @@ class QuitDetector:
 
 
 def draw_quit_indicator(frame, prog, w, h):
-    """Small indicator on the lower-right showing how close the quit gesture is."""
-    cx, cy = w - 50, h - 70
+    """Small indicator on the upper-left, opposite the gesture ring, showing
+    how close the quit gesture is. It stays faint until the fists appear."""
+    cx, cy = 50, 120
     R = 22
-    rounded_rect(frame, (cx - R - 6, cy - R - 6),
-                 (cx + R + 6, cy + R + 6), (30, 12, 18), 10, -1)
-    cv2.circle(frame, (cx, cy), R, (15, 8, 10), -1, cv2.LINE_AA)
-    cv2.circle(frame, (cx, cy), R, (60, 60, 80), 1, cv2.LINE_AA)
-    if prog > 0:
+    active = prog > 0
+    blend_rect(frame, (cx - R - 6, cy - R - 6), (cx + R + 6, cy + R + 6),
+               (30, 12, 18) if active else PANEL, 0.9 if active else 0.55, 10)
+    cv2.circle(frame, (cx, cy), R, LINE if not active else (60, 60, 80), 1, cv2.LINE_AA)
+    if active:
         cv2.ellipse(frame, (cx, cy), (R - 3, R - 3),
                     -90, 0, int(360 * prog),
-                    (60, 75, 235), 4, cv2.LINE_AA)
-    text(frame, "QUIT", (cx, cy + 6), 0.42, (220, 220, 230),
-         bold=True, center=True)
-    text(frame, "2 fists", (cx, cy + R + 16), 0.38, TEXT_MUTE, center=True)
+                    RED, 4, cv2.LINE_AA)
+    text(frame, "QUIT", (cx, cy + 6), 0.42, (220, 220, 230) if active else TEXT_DIM,
+         bold=active, center=True)
+    text(frame, "2 fists", (cx, cy + R + 24), 0.45, TEXT_DIM, center=True)
 
 
 
@@ -1447,8 +1520,6 @@ def main():
         mpi = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
         mpr = det.detect(mpi)
 
-        draw_hands(frame, mpr, w, h)
-
         state = g['state']
         if state == 'MODE_SELECT':
             valid = range(1, 4)
@@ -1470,14 +1541,13 @@ def main():
         if quit_prog >= 1.0:
             break
 
+        # The score bar sits under the screens so overlays can dim it; the hand
+        # skeleton and gesture HUD are drawn after them (below) so they stay visible.
         if state not in ('MODE_SELECT', 'DIFFICULTY_SELECT'):
             topbar(frame, g, w, dlbl, dkey)
-        gesture_indicator(frame, raw, prog, w)
-        progress_bar(frame, prog, w, h)
-        draw_quit_indicator(frame, quit_prog, w, h)
 
         if state == 'MODE_SELECT':
-            screen_mode_select(frame, conf, w, h, frame_idx)
+            screen_mode_select(frame, conf, w, h, frame_idx, raw, prog)
             if conf in (1, 2, 3):
                 g['mode'] = ['1 to 6', '1 to 10', 'CRAZY'][conf - 1]
                 g['run_range'] = [range(1, 7), range(1, 11), range(1, 11)][conf - 1]
@@ -1485,7 +1555,7 @@ def main():
                 play('click'); gc.reset()
 
         elif state == 'DIFFICULTY_SELECT':
-            screen_difficulty(frame, conf, w, h, frame_idx)
+            screen_difficulty(frame, conf, w, h, frame_idx, raw, prog)
             if conf in (1, 2, 3):
                 dmap = {1: (' EASY', 'EASY'), 2: ('MEDIUM', 'MEDIUM'), 3: ('  HARD', 'HARD')}
                 dlbl, dkey = dmap[conf]
@@ -1494,14 +1564,14 @@ def main():
                 play('click'); gc.reset()
 
         elif state == 'TOSS_CHOICE':
-            screen_toss_choice(frame, w, h)
+            screen_toss_choice(frame, w, h, raw, prog)
             if conf in (1, 2):
                 g['toss_choice'] = "ODD" if conf == 1 else "EVEN"
                 g['state'] = 'TOSS_NUMBER'
                 play('click'); gc.reset()
 
         elif state == 'TOSS_NUMBER':
-            screen_toss_number(frame, g, w, h)
+            screen_toss_number(frame, g, w, h, raw, prog)
             if conf in (1, 2):
                 cn = random.randint(1, 2)
                 tot = conf + cn
@@ -1533,7 +1603,7 @@ def main():
                     play('toss_win')
 
         elif state == 'TOSS_RESULT':
-            screen_toss_result(frame, g, conf, w, h)
+            screen_toss_result(frame, g, conf, w, h, raw, prog)
             if g['user_won_toss']:
                 if conf in (1, 2):
                     g['user_batting'] = (conf == 1)
@@ -1670,7 +1740,7 @@ def main():
                 play('click'); gc.reset()
 
         elif state == 'GAME_RESULT':
-            screen_game_result(frame, g, dlbl, w, h)
+            screen_game_result(frame, g, dlbl, w, h, raw, prog)
             s1, s2 = g['innings_scores']
             user_s, cpu_s = (s1, s2) if g['batting_first'] == 'user' else (s2, s1)
             if not g.get('result_sound_played', False) and user_s is not None and cpu_s is not None:
@@ -1701,6 +1771,10 @@ def main():
         if g['state'] != state:
             gc.reset()
 
+        draw_hands(frame, mpr, w, h)
+        gesture_indicator(frame, raw, prog, w)
+        progress_bar(frame, prog, w, h)
+        draw_quit_indicator(frame, quit_prog, w, h)
         fx.draw(frame)
         cv2.imshow(WINDOW, frame)
         key = cv2.waitKey(1) & 0xFF
