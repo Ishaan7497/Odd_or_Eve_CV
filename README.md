@@ -1,4 +1,4 @@
-# 🏏 Hand Cricket CV
+# Hand Cricket CV
 
 **Play hand cricket against an AI using only your webcam and your fingers.**
 
@@ -34,14 +34,14 @@ Some of the problems it solves:
 
 | | |
 |---|---|
-| ✋ **Gesture input** | Numbers 1–10 from one or two hands, recognised in real time |
-| 🎮 **3 match formats** | Classic (1–6), Extended (1–10) and **Crazy** (adjacent numbers = out, same number = runs squared) |
-| 🧠 **3 AI levels** | Easy (random), Medium (notices your patterns), Hard (actively counters you) |
-| 🪙 **Full match flow** | Odd/even coin toss → bat or bowl → innings break → chase → result |
-| ⚡ **Super over** | Tied matches go to a 6-ball-per-side super over |
-| 🎉 **Celebrations** | Fifties, hundreds, wickets and wins with particles, confetti and crowd audio. Raise your hand to celebrate |
-| 🔊 **Audio** | Synthesised sound effects, with optional real audio clips and background music |
-| ✊ **Gesture quit** | Hold two fists for 3 seconds to exit, with no keyboard needed |
+| **Gesture input** | Numbers 1–10 from one or two hands, recognised in real time |
+| **3 match formats** | Classic (1–6), Extended (1–10) and **Crazy** (adjacent numbers = out, same number = runs squared) |
+| **3 AI levels** | Easy (random), Medium (notices your patterns), Hard (actively counters you) |
+| **Full match flow** | Odd/even coin toss → bat or bowl → innings break → chase → result |
+| **Super over** | Tied matches go to a 6-ball-per-side super over |
+| **Celebrations** | Fifties, hundreds, wickets and wins with particles, confetti and crowd audio. Raise your hand to celebrate |
+| **Audio** | Synthesised sound effects, with optional real audio clips and background music |
+| **Gesture quit** | Hold two fists for 3 seconds to exit, with no keyboard needed |
 
 ---
 
@@ -108,7 +108,7 @@ The hand-tracking model (`assets/hand_landmarker.task`) comes with the repo. To 
 | 3 | Index + middle + ring |
 | 4 | Four fingers, thumb folded |
 | 5 | Open hand |
-| 6 | Thumb only 👍 |
+| 6 | Thumb only |
 | 7 | Thumb + index |
 | 8 | Thumb + index + middle |
 | 9 | Thumb + index + middle + ring |
